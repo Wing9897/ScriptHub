@@ -1,0 +1,176 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import type { ViewMode, Theme } from '@/types';
+
+// 預設腳本副檔名
+export const DEFAULT_SCRIPT_EXTENSIONS = ['.sh', '.bash', '.bat', '.cmd', '.ps1', '.psm1'];
+
+interface UIState {
+    theme: Theme;
+    viewMode: ViewMode;
+    sidebarCollapsed: boolean;
+    showOnlyFavorites: boolean;
+    isScriptEditorOpen: boolean;
+    editingScriptId: string | null;
+    isTagManagerOpen: boolean;
+    isVariableManagerOpen: boolean;
+    isVariableInputOpen: boolean;
+    isFileImporterOpen: boolean;
+    isCategoryManagerOpen: boolean;
+    editingCategoryId: string | null;
+    isSettingsOpen: boolean;
+    isSubscribeModalOpen: boolean;
+    pendingCopyText: string | null;
+    pendingCopyVariables: string[];
+    toasts: Toast[];
+    closeBehavior: 'ask' | 'minimize' | 'quit';
+    customScriptExtensions: string[];
+
+    setCloseBehavior: (behavior: 'ask' | 'minimize' | 'quit') => void;
+    setCustomScriptExtensions: (extensions: string[]) => void;
+    addScriptExtension: (ext: string) => void;
+    removeScriptExtension: (ext: string) => void;
+    resetScriptExtensions: () => void;
+
+    setTheme: (theme: Theme) => void;
+    setViewMode: (mode: ViewMode) => void;
+    toggleSidebar: () => void;
+    toggleShowOnlyFavorites: () => void;
+    openScriptEditor: (scriptId?: string) => void;
+    closeScriptEditor: () => void;
+    openTagManager: () => void;
+    closeTagManager: () => void;
+    openVariableManager: () => void;
+    closeVariableManager: () => void;
+    openVariableInput: (text: string, variables: string[]) => void;
+    closeVariableInput: () => void;
+    openFileImporter: () => void;
+    closeFileImporter: () => void;
+    openCategoryManager: (editCategoryId?: string) => void;
+    closeCategoryManager: () => void;
+    openSettings: () => void;
+    closeSettings: () => void;
+    openSubscribeModal: () => void;
+    closeSubscribeModal: () => void;
+    addToast: (toast: Omit<Toast, 'id'>) => void;
+    removeToast: (id: string) => void;
+}
+
+export interface Toast {
+    id: string;
+    type: 'success' | 'error' | 'info';
+    message: string;
+    persistent?: boolean;
+}
+
+export const useUIStore = create<UIState>()(
+    persist(
+        (set) => ({
+            theme: 'system',
+            viewMode: 'grid',
+            sidebarCollapsed: false,
+            showOnlyFavorites: false,
+            isScriptEditorOpen: false,
+            editingScriptId: null,
+            isTagManagerOpen: false,
+            isVariableManagerOpen: false,
+            isVariableInputOpen: false,
+            isFileImporterOpen: false,
+            isCategoryManagerOpen: false,
+            editingCategoryId: null,
+            isSettingsOpen: false,
+            isSubscribeModalOpen: false,
+            pendingCopyText: null,
+            pendingCopyVariables: [],
+            toasts: [],
+            closeBehavior: 'ask',
+            customScriptExtensions: DEFAULT_SCRIPT_EXTENSIONS,
+
+            setCloseBehavior: (behavior) => set({ closeBehavior: behavior }),
+            setCustomScriptExtensions: (extensions) => set({ customScriptExtensions: extensions }),
+            addScriptExtension: (ext) => set((state) => ({
+                customScriptExtensions: state.customScriptExtensions.includes(ext)
+                    ? state.customScriptExtensions
+                    : [...state.customScriptExtensions, ext]
+            })),
+            removeScriptExtension: (ext) => set((state) => ({
+                customScriptExtensions: state.customScriptExtensions.filter(e => e !== ext)
+            })),
+            resetScriptExtensions: () => set({ customScriptExtensions: DEFAULT_SCRIPT_EXTENSIONS }),
+
+            setTheme: (theme) => set({ theme }),
+
+            setViewMode: (mode) => set({ viewMode: mode }),
+
+            toggleSidebar: () =>
+                set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+
+            toggleShowOnlyFavorites: () =>
+                set((state) => ({ showOnlyFavorites: !state.showOnlyFavorites })),
+
+            openScriptEditor: (scriptId) =>
+                set({ isScriptEditorOpen: true, editingScriptId: scriptId || null }),
+
+            closeScriptEditor: () =>
+                set({ isScriptEditorOpen: false, editingScriptId: null }),
+
+            openTagManager: () => set({ isTagManagerOpen: true }),
+
+            closeTagManager: () => set({ isTagManagerOpen: false }),
+
+            openVariableManager: () => set({ isVariableManagerOpen: true }),
+
+            closeVariableManager: () => set({ isVariableManagerOpen: false }),
+
+            openVariableInput: (text, variables) =>
+                set({
+                    isVariableInputOpen: true,
+                    pendingCopyText: text,
+                    pendingCopyVariables: variables,
+                }),
+
+            closeVariableInput: () =>
+                set({
+                    isVariableInputOpen: false,
+                    pendingCopyText: null,
+                    pendingCopyVariables: [],
+                }),
+
+            openFileImporter: () => set({ isFileImporterOpen: true }),
+
+            closeFileImporter: () => set({ isFileImporterOpen: false }),
+
+            openCategoryManager: (editCategoryId) => set({ isCategoryManagerOpen: true, editingCategoryId: editCategoryId || null }),
+
+            closeCategoryManager: () => set({ isCategoryManagerOpen: false, editingCategoryId: null }),
+
+            openSettings: () => set({ isSettingsOpen: true }),
+
+            closeSettings: () => set({ isSettingsOpen: false }),
+
+            openSubscribeModal: () => set({ isSubscribeModalOpen: true }),
+
+            closeSubscribeModal: () => set({ isSubscribeModalOpen: false }),
+
+            addToast: (toast) =>
+                set((state) => ({
+                    toasts: [...state.toasts, { ...toast, id: Date.now().toString() }],
+                })),
+
+            removeToast: (id) =>
+                set((state) => ({
+                    toasts: state.toasts.filter((t) => t.id !== id),
+                })),
+        }),
+        {
+            name: 'scripthub-ui',
+            partialize: (state) => ({
+                theme: state.theme,
+                viewMode: state.viewMode,
+                sidebarCollapsed: state.sidebarCollapsed,
+                closeBehavior: state.closeBehavior,
+                customScriptExtensions: state.customScriptExtensions,
+            }),
+        }
+    )
+);

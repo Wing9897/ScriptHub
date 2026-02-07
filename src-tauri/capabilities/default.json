@@ -1,0 +1,147 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "default",
+    "description": "Default capabilities for ScriptHub",
+    "windows": [
+        "main"
+    ],
+    "permissions": [
+        "core:default",
+        "core:window:default",
+        "core:window:allow-close",
+        "core:window:allow-minimize",
+        "core:window:allow-maximize",
+        "core:window:allow-set-size",
+        "clipboard-manager:allow-write-text",
+        "clipboard-manager:allow-read-text",
+        "dialog:allow-open",
+        "dialog:allow-save",
+        "dialog:allow-message",
+        "dialog:allow-confirm",
+        "sql:allow-load",
+        "sql:allow-execute",
+        "sql:allow-select",
+        "sql:allow-close",
+        {
+            "identifier": "fs:allow-read-text-file",
+            "allow": [
+                {
+                    "path": "$HOME/.scripthub"
+                },
+                {
+                    "path": "$HOME/.scripthub/**"
+                },
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-write-text-file",
+            "allow": [
+                {
+                    "path": "$HOME/.scripthub"
+                },
+                {
+                    "path": "$HOME/.scripthub/**"
+                },
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-read-file",
+            "allow": [
+                {
+                    "path": "$HOME/.scripthub"
+                },
+                {
+                    "path": "$HOME/.scripthub/**"
+                },
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-write-file",
+            "allow": [
+                {
+                    "path": "$HOME/.scripthub"
+                },
+                {
+                    "path": "$HOME/.scripthub/**"
+                },
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-mkdir",
+            "allow": [
+                {
+                    "path": "$HOME/.scripthub"
+                },
+                {
+                    "path": "$HOME/.scripthub/**"
+                },
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-read-dir",
+            "allow": [
+                {
+                    "path": "$HOME/.scripthub"
+                },
+                {
+                    "path": "$HOME/.scripthub/**"
+                },
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-exists",
+            "allow": [
+                {
+                    "path": "$HOME/.scripthub"
+                },
+                {
+                    "path": "$HOME/.scripthub/**"
+                },
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        "fs:allow-create",
+        "fs:allow-remove",
+        {
+            "identifier": "http:default",
+            "allow": [
+                {
+                    "url": "https://api.github.com/**"
+                },
+                {
+                    "url": "https://github.com/**"
+                },
+                {
+                    "url": "https://raw.githubusercontent.com/**"
+                },
+                {
+                    "url": "https://codeload.github.com/**"
+                },
+                {
+                    "url": "https://objects.githubusercontent.com/**"
+                }
+            ]
+        },
+        "autostart:default"
+    ]
+}
