@@ -1,0 +1,382 @@
+import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Plus, Trash2, Edit2, Upload, Link2, ChevronDown, ChevronUp, FolderOutput } from 'lucide-react';
+import { useCategoryStore, useScriptStore, useUIStore } from '@/stores';
+import { DEFAULT_ICONS } from '@/types/category';
+import { Button, Modal, ConfirmDialog } from '@/components/ui';
+import { cn, getCategoryIconSrc, categoryIconMap } from '@/utils';
+import type { Category } from '@/types';
+
+export function CategoryManager() {
+    const { t } = useTranslation();
+    const isCategoryManagerOpen = useUIStore((state) => state.isCategoryManagerOpen);
+    const editingCategoryId = useUIStore((state) => state.editingCategoryId);
+    const closeCategoryManager = useUIStore((state) => state.closeCategoryManager);
+    const addToast = useUIStore((state) => state.addToast);
+
+    const categories = useCategoryStore((state) => state.categories);
+    const addCategory = useCategoryStore((state) => state.addCategory);
+    const updateCategory = useCategoryStore((state) => state.updateCategory);
+    const deleteCategory = useCategoryStore((state) => state.deleteCategory);
+
+    const scripts = useScriptStore((state) => state.scripts);
+    const setScripts = useScriptStore((state) => state.setScripts);
+
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [name, setName] = useState('');
+    const [selectedIcon, setSelectedIcon] = useState('app_logo');
+    const [customIcon, setCustomIcon] = useState<string | undefined>();
+    const [description, setDescription] = useState('');
+    const [showCategoryList, setShowCategoryList] = useState(true);
+
+    // 刪除確認對話框狀態
+    const [deleteConfirm, setDeleteConfirm] = useState<{
+        isOpen: boolean;
+        category: Category | null;
+        scriptCount: number;
+    }>({ isOpen: false, category: null, scriptCount: 0 });
+
+    // 從外部打開時自動選中編輯的類別
+    useEffect(() => {
+        if (isCategoryManagerOpen && editingCategoryId) {
+            const cat = categories.find(c => c.id === editingCategoryId);
+            if (cat) {
+                handleEdit(cat);
+            }
+        }
+        if (!isCategoryManagerOpen) {
+            resetForm();
+        }
+    }, [isCategoryManagerOpen, editingCategoryId]);
+
+    const resetForm = () => {
+        setEditingId(null);
+        setName('');
+        setSelectedIcon('app_logo');
+        setCustomIcon(undefined);
+        setDescription('');
+    };
+
+    const handleEdit = (category: typeof categories[0]) => {
+        setEditingId(category.id);
+        setName(category.name);
+        setSelectedIcon(category.icon);
+        setCustomIcon(category.customIcon);
+        setDescription(category.description || '');
+    };
+
+    const handleSave = async () => {
+        if (!name.trim()) {
+            addToast({ type: 'error', message: t('category.manager.inputName') });
+            return;
+        }
+
+        try {
+            if (editingId) {
+                await updateCategory(editingId, {
+                    name: name.trim(),
+                    icon: selectedIcon,
+                    customIcon,
+                    description: description.trim() || undefined,
+                });
+                addToast({ type: 'success', message: t('category.manager.updateSuccess') });
+            } else {
+                await addCategory({
+                    name: name.trim(),
+                    icon: selectedIcon,
+                    customIcon,
+                    description: description.trim() || undefined,
+                });
+                addToast({ type: 'success', message: t('category.manager.createSuccess') });
+            }
+            resetForm();
+        } catch (e) {
+            console.error(e);
+            addToast({ type: 'error', message: t('common.error') });
+        }
+    };
+
+    const handleDeleteClick = (category: Category) => {
+        const scriptCount = scripts.filter(s => s.categoryId === category.id).length;
+        setDeleteConfirm({
+            isOpen: true,
+            category,
+            scriptCount
+        });
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!deleteConfirm.category) return;
+
+        const categoryId = deleteConfirm.category.id;
+        const isSubscription = deleteConfirm.category.isSubscription;
+
+        try {
+            if (isSubscription) {
+                // 訂閱類別：連同腳本一起刪除
+                const updatedScripts = scripts.filter(s => s.categoryId !== categoryId);
+                setScripts(updatedScripts);
+                await deleteCategory(categoryId);
+                addToast({
+                    type: 'success',
+                    message: t('category.manager.deleteSuccess')
+                });
+            } else {
+                // 一般類別：只刪除類別，腳本變為未分類
+                await deleteCategory(categoryId);
+                addToast({ type: 'success', message: t('category.manager.deleteSuccess') });
+            }
+
+            if (editingId === categoryId) {
+                resetForm();
+            }
+
+            setDeleteConfirm({ isOpen: false, category: null, scriptCount: 0 });
+        } catch (e) {
+            console.error('Failed to delete category:', e);
+            addToast({ type: 'error', message: t('common.error') });
+        }
+    };
+
+    const handleExportClick = async (category: Category) => {
+        const categoryScripts = scripts.filter(s => s.categoryId === category.id);
+
+        if (categoryScripts.length === 0) {
+            addToast({ type: 'error', message: t('category.manager.exportNoScripts') });
+            return;
+        }
+
+        try {
+            const { exportUnified } = await import('@/services/exportFolder');
+            // 使用統一 V2 導出格式，僅包含此類別
+            // 注意：這裡暫時不導出全域 tags/variables 定義，僅導出腳本內容
+            const success = await exportUnified([category], categoryScripts, [], []);
+
+            if (success) {
+                addToast({
+                    type: 'success',
+                    message: t('category.manager.exportSuccess', { count: categoryScripts.length })
+                });
+            }
+        } catch (error) {
+            addToast({
+                type: 'error',
+                message: error instanceof Error ? error.message : t('category.manager.exportFail')
+            });
+        }
+    };
+
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            addToast({ type: 'error', message: t('category.manager.imageTypeErr') });
+            return;
+        }
+
+        if (file.size > 512 * 1024) {
+            addToast({ type: 'error', message: t('category.manager.imageSizeErr') });
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            setCustomIcon(event.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    if (!isCategoryManagerOpen) return null;
+
+    return (
+        <>
+            <Modal isOpen={isCategoryManagerOpen} onClose={closeCategoryManager} title={t('category.manager.title')} size="md">
+                <div className="space-y-6">
+                    {/* 新增/編輯表單 */}
+                    <div className="space-y-4 pb-4 border-b border-gray-200 dark:border-dark-700">
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                            {editingId ? t('category.manager.editTitle') : t('category.manager.createTitle')}
+                        </h3>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                    {t('category.manager.nameLabel')}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    placeholder={t('category.manager.namePlaceholder')}
+                                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                    {t('category.manager.descLabel')}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    placeholder={t('category.manager.descPlaceholder')}
+                                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-2">
+                                {t('category.manager.iconLabel')}
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                                {DEFAULT_ICONS.map((icon) => (
+                                    <button
+                                        key={icon.id}
+                                        onClick={() => {
+                                            setSelectedIcon(icon.id);
+                                            setCustomIcon(undefined);
+                                        }}
+                                        className={cn(
+                                            "p-2 rounded-lg border-2 transition-all",
+                                            selectedIcon === icon.id && !customIcon
+                                                ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 scale-105"
+                                                : "border-transparent hover:border-gray-300 dark:hover:border-dark-500"
+                                        )}
+                                        title={icon.name}
+                                    >
+                                        <img
+                                            src={categoryIconMap[icon.id]}
+                                            alt={icon.name}
+                                            className="w-7 h-7 object-contain"
+                                        />
+                                    </button>
+                                ))}
+                                <label className={cn(
+                                    "flex items-center gap-1 px-3 py-2 rounded-lg border-2 border-dashed cursor-pointer transition-all",
+                                    customIcon
+                                        ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
+                                        : "border-gray-300 dark:border-dark-600 hover:border-primary-400"
+                                )}>
+                                    <Upload className="w-4 h-4 text-gray-400" />
+                                    <span className="text-xs text-gray-500">{t('category.manager.upload')}</span>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={handleImageUpload}
+                                        className="hidden"
+                                    />
+                                    {customIcon && (
+                                        <img src={customIcon} alt="Custom" className="w-5 h-5 object-contain ml-1" />
+                                    )}
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <Button onClick={handleSave} size="sm" className="flex-1">
+                                <Plus className="w-4 h-4" />
+                                {editingId ? t('common.update') : t('common.create')}
+                            </Button>
+                            {editingId && (
+                                <Button variant="ghost" size="sm" onClick={resetForm}>
+                                    {t('common.cancel')}
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 類別列表 */}
+                    <div>
+                        <button
+                            onClick={() => setShowCategoryList(!showCategoryList)}
+                            className="flex items-center justify-between w-full text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2"
+                        >
+                            <span>{t('category.manager.existingTitle')} ({categories.length})</span>
+                            {showCategoryList ? (
+                                <ChevronUp className="w-4 h-4 text-gray-400" />
+                            ) : (
+                                <ChevronDown className="w-4 h-4 text-gray-400" />
+                            )}
+                        </button>
+
+                        {showCategoryList && (
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                                {categories.length === 0 ? (
+                                    <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">
+                                        {t('category.manager.noCategories')}
+                                    </p>
+                                ) : (
+                                    categories.map((cat) => (
+                                        <div
+                                            key={cat.id}
+                                            className={cn(
+                                                "flex items-center gap-2 p-2 rounded-lg transition-colors",
+                                                editingId === cat.id
+                                                    ? "bg-primary-50 dark:bg-primary-900/20"
+                                                    : "hover:bg-gray-50 dark:hover:bg-dark-700"
+                                            )}
+                                        >
+                                            <img
+                                                src={getCategoryIconSrc(cat.icon, cat.customIcon)}
+                                                alt={cat.name}
+                                                className="w-8 h-8 object-contain rounded"
+                                            />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex items-center gap-1">
+                                                    {cat.name}
+                                                    {cat.isSubscription && (
+                                                        <Link2 className="w-3 h-3 text-primary-500" />
+                                                    )}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-0.5">
+                                                <button
+                                                    onClick={() => handleExportClick(cat)}
+                                                    className="p-1.5 text-gray-400 hover:text-green-500 rounded"
+                                                    title={t('category.manager.exportFolder')}
+                                                >
+                                                    <FolderOutput className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleEdit(cat)}
+                                                    className="p-1.5 text-gray-400 hover:text-primary-500 rounded"
+                                                    title={t('common.edit')}
+                                                >
+                                                    <Edit2 className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteClick(cat)}
+                                                    className="p-1.5 text-gray-400 hover:text-red-500 rounded"
+                                                    title={t('common.delete')}
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </Modal>
+
+            {/* 刪除確認對話框 */}
+            <ConfirmDialog
+                isOpen={deleteConfirm.isOpen}
+                onClose={() => setDeleteConfirm({ isOpen: false, category: null, scriptCount: 0 })}
+                onConfirm={handleDeleteConfirm}
+                title={deleteConfirm.category?.isSubscription ? t('category.manager.unsubscribe') : t('script.deleteTitle')}
+                message={
+                    deleteConfirm.category?.isSubscription
+                        ? t('category.manager.deleteSubscriptionConfirm', { name: deleteConfirm.category?.name, count: deleteConfirm.scriptCount })
+                        : t('category.manager.deleteConfirm', { name: deleteConfirm.category?.name, count: deleteConfirm.scriptCount })
+                }
+                confirmText={deleteConfirm.category?.isSubscription ? t('category.manager.unsubscribe') : t('common.delete')}
+                variant="danger"
+            />
+        </>
+    );
+}
