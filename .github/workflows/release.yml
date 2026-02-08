@@ -50,6 +50,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "ScriptHub ${{ github.ref_name }}"
           releaseBody: "See the assets below to download for your platform."
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
