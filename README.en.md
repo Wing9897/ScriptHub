@@ -107,6 +107,78 @@ Output is located at `src-tauri/target/release/bundle/`.
 3. Scan and select scripts to import
 4. Use the ⋮ menu on the category card to sync updates later
 
+## � Data Format
+
+ScriptHub uses a V2 unified format for import/export with the following structure:
+
+```
+scripthub-export-2025-02-08/
+├── scripthub.json              # Root manifest
+├── global/
+│   ├── tags.json               # Global tags
+│   ├── variables.json          # Global variables
+│   └── custom_icons.json       # Custom icon library
+├── categories/
+│   └── [category-name]/
+│       ├── category.json       # Category metadata + script list
+│       ├── icon.png            # Custom icon (if any)
+│       └── scripts/
+│           ├── script-a.sh
+│           └── script-b.ps1
+└── uncategorized/
+    ├── category.json
+    └── scripts/
+```
+
+### scripthub.json
+
+```json
+{
+  "manifest_version": "2.0",
+  "exported_at": "2025-02-08T12:00:00.000Z",
+  "app_version": "1.0.0",
+  "stats": {
+    "categories": 3,
+    "scripts": 15,
+    "tags": 5,
+    "variables": 0
+  }
+}
+```
+
+### category.json
+
+```json
+{
+  "id": "uuid",
+  "name": "My Scripts",
+  "description": "Common deploy scripts",
+  "icon": "terminal",
+  "customIcon": "icon.png",
+  "order": 0,
+  "createdAt": "2025-01-01T00:00:00.000Z",
+  "isSubscription": false,
+  "sourceUrl": null,
+  "scripts": [
+    {
+      "id": "uuid",
+      "title": "Deploy",
+      "description": "Deploy to production",
+      "file": "scripts/deploy.sh",
+      "platform": "linux",
+      "tags": ["tag-id-1"],
+      "variables": [],
+      "isFavorite": true,
+      "order": 0,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Supported platform values: `cross`, `windows`, `linux`, `macos`
+
 ## 📁 Project Structure
 
 ```

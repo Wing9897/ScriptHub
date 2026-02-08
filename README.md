@@ -105,6 +105,78 @@ npm run tauri build
 3. 掃描並選擇要導入的腳本
 4. 之後可透過類別卡片的 ⋮ 選單一鍵更新
 
+## 📦 資料格式
+
+ScriptHub 使用 V2 統一格式進行匯入/匯出，結構如下：
+
+```
+scripthub-export-2025-02-08/
+├── scripthub.json              # 根 manifest
+├── global/
+│   ├── tags.json               # 全域標籤
+│   ├── variables.json          # 全域變數
+│   └── custom_icons.json       # 自訂圖標庫
+├── categories/
+│   └── [category-name]/
+│       ├── category.json       # 類別元數據 + 腳本列表
+│       ├── icon.png            # 自訂圖標（如有）
+│       └── scripts/
+│           ├── script-a.sh
+│           └── script-b.ps1
+└── uncategorized/
+    ├── category.json
+    └── scripts/
+```
+
+### scripthub.json
+
+```json
+{
+  "manifest_version": "2.0",
+  "exported_at": "2025-02-08T12:00:00.000Z",
+  "app_version": "1.0.0",
+  "stats": {
+    "categories": 3,
+    "scripts": 15,
+    "tags": 5,
+    "variables": 0
+  }
+}
+```
+
+### category.json
+
+```json
+{
+  "id": "uuid",
+  "name": "My Scripts",
+  "description": "常用部署腳本",
+  "icon": "terminal",
+  "customIcon": "icon.png",
+  "order": 0,
+  "createdAt": "2025-01-01T00:00:00.000Z",
+  "isSubscription": false,
+  "sourceUrl": null,
+  "scripts": [
+    {
+      "id": "uuid",
+      "title": "Deploy",
+      "description": "部署到生產環境",
+      "file": "scripts/deploy.sh",
+      "platform": "linux",
+      "tags": ["tag-id-1"],
+      "variables": [],
+      "isFavorite": true,
+      "order": 0,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+支援的平台值：`cross`、`windows`、`linux`、`macos`
+
 ## 📁 專案結構
 
 ```
