@@ -1,10 +1,12 @@
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, FolderOpen, Link2, RefreshCw, Loader2, GripVertical, MoreVertical, Edit2 } from 'lucide-react';
+import { Plus, FolderOpen, Link2, RefreshCw, Loader2, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { useCategoryStore, useScriptStore, useUIStore } from '@/stores';
 import { cn, getCategoryIconSrc } from '@/utils';
 import { parseGitHubUrl, downloadRepoWithFallback } from '@/services/githubService';
 import { useDragSort } from '@/hooks';
+import { ContextMenu, ConfirmDialog } from '@/components/ui';
+import type { ContextMenuItem } from '@/components/ui';
 import type { Category } from '@/types';
 
 export function CategoryGrid() {
@@ -13,6 +15,7 @@ export function CategoryGrid() {
     const setSelectedCategory = useCategoryStore((state) => state.setSelectedCategory);
     const updateSubscriptionSync = useCategoryStore((state) => state.updateSubscriptionSync);
     const reorderCategories = useCategoryStore((state) => state.reorderCategories);
+    const deleteCategory = useCategoryStore((state) => state.deleteCategory);
     const scripts = useScriptStore((state) => state.scripts);
     const setScripts = useScriptStore((state) => state.setScripts);
     const openCategoryManager = useUIStore((state) => state.openCategoryManager);
@@ -24,6 +27,31 @@ export function CategoryGrid() {
     const [syncingId, setSyncingId] = useState<string | null>(null);
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+
+    // Context menu state
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; category: Category } | null>(null);
+    // Delete confirm state
+    const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+
+    const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+    const handleContextMenu = (e: React.MouseEvent, category: Category) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpenMenuId(null);
+        setContextMenu({ x: e.clientX, y: e.clientY, category });
+    };
+
+    const handleDeleteCategory = async (category: Category) => {
+        if (category.isSubscription) {
+            // Also remove scripts
+            const updatedScripts = scripts.filter(s => s.categoryId !== category.id);
+            setScripts(updatedScripts);
+        }
+        await deleteCategory(category.id);
+        addToast({ type: 'success', message: t('category.manager.deleteSuccess') });
+        setDeleteTarget(null);
+    };
 
     // 點擊外部關閉選單
     useEffect(() => {
@@ -84,14 +112,42 @@ export function CategoryGrid() {
         getItemId: (cat) => cat.id,
         onReorder: (newItems) => {
             reorderCategories(newItems.map(c => c.id));
-            addToast({ type: 'success', message: t('category.reorderSuccess') });
         },
     });
 
     const isDragEnabled = !categorySearch.trim();
 
+    // Build context menu items for a category
+    const getContextMenuItems = (category: Category): ContextMenuItem[] => {
+        const items: ContextMenuItem[] = [];
+
+        if (category.isSubscription && category.sourceUrl) {
+            items.push({
+                label: t('category.update'),
+                icon: <RefreshCw className="w-4 h-4" />,
+                onClick: () => handlePullUpdate({ stopPropagation: () => {} } as React.MouseEvent, category.id, category.sourceUrl!),
+                disabled: syncingId === category.id,
+            });
+        }
+
+        items.push({
+            label: t('common.edit'),
+            icon: <Edit2 className="w-4 h-4" />,
+            onClick: () => openCategoryManager(category.id),
+        });
+
+        items.push({
+            label: t('common.delete'),
+            icon: <Trash2 className="w-4 h-4" />,
+            onClick: () => setDeleteTarget(category),
+            variant: 'danger',
+        });
+
+        return items;
+    };
+
     // Pull 更新處理 (使用 ZIP 下載)
-    const handlePullUpdate = async (e: React.MouseEvent, categoryId: string, sourceUrl: string) => {
+    const handlePullUpdate = async (e: React.MouseEvent | { stopPropagation: () => void }, categoryId: string, sourceUrl: string) => {
         e.stopPropagation();
 
         if (syncingId) return;
@@ -99,13 +155,11 @@ export function CategoryGrid() {
         addToast({ type: 'info', message: t('category.pulling'), persistent: true });
 
         try {
-            // 解析 URL
             const parsed = parseGitHubUrl(sourceUrl);
             if (!parsed) {
                 throw new Error('Invalid GitHub URL');
             }
 
-            // 使用 ZIP 下載 (比舊版更高效)
             const downloaded = await downloadRepoWithFallback(
                 parsed.owner,
                 parsed.repo,
@@ -113,10 +167,8 @@ export function CategoryGrid() {
                 parsed.path
             );
 
-            // 刪除舊腳本
             const updatedScripts = scripts.filter(s => s.categoryId !== categoryId);
 
-            // 添加新腳本
             const newScripts = downloaded.map(({ script, content }) => ({
                 id: crypto.randomUUID(),
                 title: script.name.replace(/\.(sh|bat|ps1|cmd|bash|psm1)$/i, ''),
@@ -139,7 +191,6 @@ export function CategoryGrid() {
             setScripts([...updatedScripts, ...newScripts]);
             updateSubscriptionSync(categoryId);
 
-            // 移除持續顯示的同步 toast
             const currentToasts = useUIStore.getState().toasts;
             currentToasts.filter(t => t.persistent).forEach(t => removeToast(t.id));
 
@@ -148,7 +199,6 @@ export function CategoryGrid() {
                 message: t('category.pullSuccess', { count: downloaded.length })
             });
         } catch (error) {
-            // 移除持續顯示的同步 toast
             const currentToasts = useUIStore.getState().toasts;
             currentToasts.filter(t => t.persistent).forEach(t => removeToast(t.id));
 
@@ -160,6 +210,19 @@ export function CategoryGrid() {
             setSyncingId(null);
         }
     };
+
+    // Delete confirm message
+    const deleteConfirmMessage = deleteTarget
+        ? deleteTarget.isSubscription
+            ? t('category.manager.deleteSubscriptionConfirm', {
+                name: deleteTarget.name,
+                count: scripts.filter(s => s.categoryId === deleteTarget.id).length
+            })
+            : t('category.manager.deleteConfirm', {
+                name: deleteTarget.name,
+                count: scripts.filter(s => s.categoryId === deleteTarget.id).length
+            })
+        : '';
 
     return (
         <div className={cn("p-6 min-h-full bg-gray-50 dark:bg-dark-900")}>
@@ -205,13 +268,9 @@ export function CategoryGrid() {
                             onDragLeave={onDragLeave}
                             onDrop={(e) => isDragEnabled && onDrop(e, category.id)}
                             onDragEnd={onDragEnd}
+                            onContextMenu={(e) => handleContextMenu(e, category)}
                         >
-                            {/* 拖曳把手圖標 */}
-                            {isDragEnabled && (
-                                <div className="absolute top-2 right-2 p-1 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                    <GripVertical className="w-4 h-4" />
-                                </div>
-                            )}
+
                             <button
                                 onClick={() => setSelectedCategory(category.id)}
                                 className={cn(
@@ -246,25 +305,28 @@ export function CategoryGrid() {
                             </button>
 
                             {/* 更多選項選單 */}
-                            {category.isSubscription && category.sourceUrl && (
-                                <div className="absolute bottom-2 right-2 z-20" ref={openMenuId === category.id ? menuRef : undefined}>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setOpenMenuId(openMenuId === category.id ? null : category.id);
-                                        }}
-                                        className={cn(
-                                            "p-1.5 rounded-lg opacity-0 group-hover:opacity-100",
-                                            "text-gray-400 hover:text-primary-600 dark:text-gray-500 dark:hover:text-primary-400",
-                                            "hover:bg-gray-100 dark:hover:bg-dark-600",
-                                            "transition-all",
-                                            openMenuId === category.id && "opacity-100"
-                                        )}
-                                    >
-                                        <MoreVertical className="w-4 h-4" />
-                                    </button>
-                                    {openMenuId === category.id && (
-                                        <div className="absolute right-0 bottom-full mb-1 w-32 bg-white dark:bg-dark-800 rounded-lg shadow-lg border border-gray-200 dark:border-dark-600 py-1 z-30">
+                            <div
+                                className="absolute top-2 right-2 z-20"
+                                ref={openMenuId === category.id ? menuRef : undefined}
+                            >
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuId(openMenuId === category.id ? null : category.id);
+                                    }}
+                                    className={cn(
+                                        "p-1.5 rounded-lg opacity-0 group-hover:opacity-100",
+                                        "text-gray-400 hover:text-primary-600 dark:text-gray-500 dark:hover:text-primary-400",
+                                        "hover:bg-gray-100 dark:hover:bg-dark-600",
+                                        "transition-all",
+                                        openMenuId === category.id && "opacity-100"
+                                    )}
+                                >
+                                    <MoreVertical className="w-4 h-4" />
+                                </button>
+                                {openMenuId === category.id && (
+                                    <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-dark-800 rounded-lg shadow-lg border border-gray-200 dark:border-dark-600 py-1 z-30">
+                                        {category.isSubscription && category.sourceUrl && (
                                             <button
                                                 onClick={(e) => {
                                                     setOpenMenuId(null);
@@ -280,21 +342,32 @@ export function CategoryGrid() {
                                                 )}
                                                 {t('category.update')}
                                             </button>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setOpenMenuId(null);
-                                                    openCategoryManager(category.id);
-                                                }}
-                                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors"
-                                            >
-                                                <Edit2 className="w-4 h-4" />
-                                                {t('common.edit')}
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                        )}
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenMenuId(null);
+                                                openCategoryManager(category.id);
+                                            }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors"
+                                        >
+                                            <Edit2 className="w-4 h-4" />
+                                            {t('common.edit')}
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenMenuId(null);
+                                                setDeleteTarget(category);
+                                            }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                            {t('common.delete')}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     ))}
 
@@ -352,12 +425,9 @@ export function CategoryGrid() {
                             onDragLeave={onDragLeave}
                             onDrop={(e) => isDragEnabled && onDrop(e, category.id)}
                             onDragEnd={onDragEnd}
+                            onContextMenu={(e) => handleContextMenu(e, category)}
                         >
-                            {isDragEnabled && (
-                                <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-6 p-1 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <GripVertical className="w-4 h-4" />
-                                </div>
-                            )}
+
                             <button
                                 onClick={() => setSelectedCategory(category.id)}
                                 className="w-full flex items-center gap-4 p-3 rounded-lg border border-gray-200 dark:border-dark-600 hover:border-primary-400 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 transition-all"
@@ -376,20 +446,20 @@ export function CategoryGrid() {
                                     </p>
                                     <p className="text-xs text-gray-400">{t('category.scriptCountSuffix', { count: categoryCounts.counts[category.id] || 0 })}</p>
                                 </div>
-                                {category.isSubscription && category.sourceUrl && (
-                                    <div className="relative" ref={openMenuId === `list-${category.id}` ? menuRef : undefined}>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                const menuId = `list-${category.id}`;
-                                                setOpenMenuId(openMenuId === menuId ? null : menuId);
-                                            }}
-                                            className="p-2 text-gray-400 hover:text-primary-500 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-600"
-                                        >
-                                            <MoreVertical className="w-4 h-4" />
-                                        </button>
-                                        {openMenuId === `list-${category.id}` && (
-                                            <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-dark-800 rounded-lg shadow-lg border border-gray-200 dark:border-dark-600 py-1 z-30">
+                                <div className="relative" ref={openMenuId === `list-${category.id}` ? menuRef : undefined}>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const menuId = `list-${category.id}`;
+                                            setOpenMenuId(openMenuId === menuId ? null : menuId);
+                                        }}
+                                        className="p-2 text-gray-400 hover:text-primary-500 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-600"
+                                    >
+                                        <MoreVertical className="w-4 h-4" />
+                                    </button>
+                                    {openMenuId === `list-${category.id}` && (
+                                        <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-dark-800 rounded-lg shadow-lg border border-gray-200 dark:border-dark-600 py-1 z-30">
+                                            {category.isSubscription && category.sourceUrl && (
                                                 <button
                                                     onClick={(e) => {
                                                         setOpenMenuId(null);
@@ -405,26 +475,58 @@ export function CategoryGrid() {
                                                     )}
                                                     {t('category.update')}
                                                 </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setOpenMenuId(null);
-                                                        openCategoryManager(category.id);
-                                                    }}
-                                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors"
-                                                >
-                                                    <Edit2 className="w-4 h-4" />
-                                                    {t('common.edit')}
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
+                                            )}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setOpenMenuId(null);
+                                                    openCategoryManager(category.id);
+                                                }}
+                                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors"
+                                            >
+                                                <Edit2 className="w-4 h-4" />
+                                                {t('common.edit')}
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setOpenMenuId(null);
+                                                    setDeleteTarget(category);
+                                                }}
+                                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                                {t('common.delete')}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </button>
                         </div>
                     ))}
                 </div>
             )}
+
+            {/* Right-click context menu */}
+            {contextMenu && (
+                <ContextMenu
+                    x={contextMenu.x}
+                    y={contextMenu.y}
+                    items={getContextMenuItems(contextMenu.category)}
+                    onClose={closeContextMenu}
+                />
+            )}
+
+            {/* Delete confirmation dialog */}
+            <ConfirmDialog
+                isOpen={!!deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                onConfirm={() => deleteTarget && handleDeleteCategory(deleteTarget)}
+                title={deleteTarget?.isSubscription ? t('category.manager.unsubscribe') : t('common.delete')}
+                message={deleteConfirmMessage}
+                confirmText={deleteTarget?.isSubscription ? t('category.manager.unsubscribe') : t('common.delete')}
+                variant="danger"
+            />
         </div>
     );
 }

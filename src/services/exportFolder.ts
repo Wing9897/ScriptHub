@@ -4,6 +4,7 @@ import type { Script, Category, Tag, Variable } from '@/types';
 import type { UnifiedManifest, CategoryExport, ScriptExport } from '@/types/transfer';
 import i18n from '@/i18n';
 import { getScriptExtension, sanitizeFilename, scriptToFileContent } from '@/utils/files';
+import { getAllCustomIcons } from './database';
 
 
 /**
@@ -62,6 +63,19 @@ export async function exportUnified(
         `${globalPath}/variables.json`,
         JSON.stringify(variables, null, 2)
     );
+
+    // 導出自訂圖標庫
+    try {
+        const customIcons = await getAllCustomIcons();
+        if (customIcons.length > 0) {
+            await writeTextFile(
+                `${globalPath}/custom_icons.json`,
+                JSON.stringify(customIcons, null, 2)
+            );
+        }
+    } catch (e) {
+        console.warn('Failed to export custom icons:', e);
+    }
 
     // 導出每個類別
     for (const category of categories) {

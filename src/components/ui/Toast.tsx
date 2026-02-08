@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { CheckCircle, XCircle, Info, X, Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useUIStore, Toast as ToastType } from '@/stores';
@@ -22,13 +22,16 @@ interface ToastItemProps {
 }
 
 function ToastItem({ toast, onRemove }: ToastItemProps) {
+    const onRemoveRef = useRef(onRemove);
+    onRemoveRef.current = onRemove;
+
     useEffect(() => {
         if (toast.persistent) return;
         const timer = setTimeout(() => {
-            onRemove(toast.id);
+            onRemoveRef.current(toast.id);
         }, 3000);
         return () => clearTimeout(timer);
-    }, [toast.id, toast.persistent, onRemove]);
+    }, [toast.id, toast.persistent]);
 
     const icons = {
         success: CheckCircle,

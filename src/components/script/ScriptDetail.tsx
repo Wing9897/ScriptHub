@@ -136,24 +136,14 @@ export function ScriptDetail() {
 
                 {/* Footer Actions */}
                 <div className="pt-4 border-t border-gray-200 dark:border-dark-700 space-y-2">
-                    <div className="flex gap-2">
-                        <Button
-                            variant="secondary"
-                            className="flex-1"
-                            onClick={() => copyScript(script, 'multiline')}
-                        >
-                            <Copy className="w-4 h-4" />
-                            {t('script.copyMultiline')}
-                        </Button>
-                        <Button
-                            variant="secondary"
-                            className="flex-1"
-                            onClick={() => copyScript(script, 'inline')}
-                        >
-                            <Copy className="w-4 h-4" />
-                            {t('script.copyInline')}
-                        </Button>
-                    </div>
+                    <Button
+                        variant="secondary"
+                        className="w-full"
+                        onClick={() => copyScript(script)}
+                    >
+                        <Copy className="w-4 h-4" />
+                        {t('script.copyAll')}
+                    </Button>
                     <div className="flex gap-2">
                         <Button
                             variant="ghost"

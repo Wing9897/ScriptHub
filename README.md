@@ -4,24 +4,25 @@
 
 ![Tauri](https://img.shields.io/badge/Tauri-2.0-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
+![ScriptHub Banner](assets/ScriptHub_banner.png)
+
 ## ✨ 功能特色
 
 ### 腳本管理
 - 📝 建立、編輯、刪除腳本，支援多步驟命令流程
-- 📋 一鍵複製單條命令或整個腳本（多行 / 單行模式）
+- 📋 一鍵複製單條命令或整個腳本
 - ⭐ 收藏常用腳本，快速存取
 - 🔍 即時搜尋標題、描述和命令內容
 - 🔀 拖曳排序腳本順序
 
+![分類頁面](assets/folder_page.png)
+
 ### 分類與標籤
-- 📁 資料夾式類別管理，支援 19 種預設圖標及自訂圖標上傳
+- 📁 資料夾式類別管理，支援 34 種預設圖標及自訂圖標上傳
+- 🖼️ 圖標庫功能，上傳的圖標可跨類別重複使用
 - 🏷️ 彩色標籤系統，靈活分類和篩選
 - 🔀 拖曳排序類別順序
-
-### 變數系統
-- 🔤 在命令中使用 `${VARIABLE_NAME}` 定義變數
-- 📥 複製時自動彈出對話框填入實際值
-- 💾 預設值管理，提升效率
+- ⋮ 類別卡片右上角更多選單（編輯、刪除、更新訂閱）
 
 ### 訂閱與同步
 - 🔗 訂閱 GitHub 腳本庫，自動導入腳本
@@ -34,11 +35,14 @@
 - 📥 從備份或外部資料夾導入
 - 🗂️ 單一類別導出功能
 
+![設定頁面](assets/setting_page.png)
+
 ### 介面與體驗
 - 🌓 淺色 / 深色 / 跟隨系統主題
 - 📱 卡片網格與列表視圖切換
 - 🌐 繁體中文 / English 雙語支援
 - 🖥️ 動態側邊欄，根據當前頁面切換功能
+- 🖱️ 右鍵選單支援（類別、腳本卡片）
 - 🚀 開機自動啟動（可選）
 - 🔽 關閉時最小化到系統托盤
 
@@ -61,7 +65,7 @@
 
 ```bash
 # 克隆專案
-git clone https://github.com/your-username/ScriptHub.git
+git clone https://github.com/Wing9897/ScriptHub.git
 cd ScriptHub
 
 # 安裝依賴
@@ -92,23 +96,12 @@ npm run tauri build
 4. 選擇類別和標籤
 5. 點擊「建立腳本」
 
-### 使用變數
-
-在命令中使用 `${VAR}` 語法：
-
-```bash
-git commit -m "${MESSAGE}"
-scp ${FILE} ${USER}@${HOST}:${PATH}
-```
-
-複製時會自動彈出對話框讓你填入實際值。
-
 ### 訂閱 GitHub 腳本庫
 
 1. 點擊側邊欄「訂閱」按鈕
 2. 輸入 GitHub 倉庫 URL（支援子目錄路徑）
 3. 掃描並選擇要導入的腳本
-4. 之後可透過類別卡片的選單一鍵更新
+4. 之後可透過類別卡片的 ⋮ 選單一鍵更新
 
 ## 📁 專案結構
 
@@ -120,7 +113,6 @@ ScriptHub/
 │   │   ├── category/       # 類別管理
 │   │   ├── script/         # 腳本相關
 │   │   ├── tag/            # 標籤管理
-│   │   ├── variable/       # 變數管理
 │   │   ├── import/         # 檔案導入
 │   │   ├── subscription/   # 訂閱功能
 │   │   ├── settings/       # 設定頁面

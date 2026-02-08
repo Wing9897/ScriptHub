@@ -36,3 +36,6 @@ yarn-error.log*
 
 # Rust
 **/*.rs.bk
+
+# Temp fix scripts
+fix-*.cjs

@@ -4,7 +4,6 @@ import {
     Star,
     Tag,
     Folder,
-    Settings2,
     PanelLeftClose,
     PanelLeft,
     Settings,
@@ -31,7 +30,6 @@ export function Sidebar({ mode }: SidebarProps) {
     const showOnlyFavorites = useUIStore((state) => state.showOnlyFavorites);
     const toggleShowOnlyFavorites = useUIStore((state) => state.toggleShowOnlyFavorites);
     const openTagManager = useUIStore((state) => state.openTagManager);
-    const openVariableManager = useUIStore((state) => state.openVariableManager);
     const openSettings = useUIStore((state) => state.openSettings);
     const openSubscribeModal = useUIStore((state) => state.openSubscribeModal);
     const openCategoryManager = useUIStore((state) => state.openCategoryManager);
@@ -149,14 +147,6 @@ export function Sidebar({ mode }: SidebarProps) {
             {/* Footer Actions - Shared across modes */}
             <div className="px-2 py-2 border-t border-gray-200 dark:border-dark-700">
                 <div className="flex flex-col gap-1">
-                    <button
-                        onClick={openVariableManager}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-dark-800 rounded-lg transition-colors group"
-                        title={t('sidebar.variables')}
-                    >
-                        <Settings2 className="w-4 h-4 text-gray-400 group-hover:text-primary-500" />
-                        <span className="flex-1 text-left">{t('sidebar.variables')}</span>
-                    </button>
                     <button
                         onClick={openSettings}
                         className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-dark-800 rounded-lg transition-colors group"
@@ -393,7 +383,6 @@ function ScriptModeContent({
                         className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded"
                         title={t('sidebar.manageTags')}
                     >
-                        <Settings2 className="w-3 h-3" />
                     </button>
                 </div>
                 <div className="space-y-0.5">

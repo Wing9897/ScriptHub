@@ -153,9 +153,15 @@ export const useUIStore = create<UIState>()(
             closeSubscribeModal: () => set({ isSubscribeModalOpen: false }),
 
             addToast: (toast) =>
-                set((state) => ({
-                    toasts: [...state.toasts, { ...toast, id: Date.now().toString() }],
-                })),
+                set((state) => {
+                    // 新的非持續 toast 出現時，自動移除所有持續 toast
+                    const filtered = toast.persistent
+                        ? state.toasts
+                        : state.toasts.filter(t => !t.persistent);
+                    return {
+                        toasts: [...filtered, { ...toast, id: Date.now().toString() }],
+                    };
+                }),
 
             removeToast: (id) =>
                 set((state) => ({

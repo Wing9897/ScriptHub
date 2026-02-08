@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, Edit2, Upload, Link2, ChevronDown, ChevronUp, FolderOutput } from 'lucide-react';
+import { Plus, Trash2, Edit2, Upload, Link2, ChevronDown, ChevronUp, FolderOutput, X } from 'lucide-react';
 import { useCategoryStore, useScriptStore, useUIStore } from '@/stores';
 import { DEFAULT_ICONS } from '@/types/category';
 import { Button, Modal, ConfirmDialog } from '@/components/ui';
 import { cn, getCategoryIconSrc, categoryIconMap } from '@/utils';
 import type { Category } from '@/types';
+import { getAllCustomIcons, insertCustomIcon, deleteCustomIcon as dbDeleteCustomIcon } from '@/services/database';
+import { v4 as uuidv4 } from 'uuid';
 
 export function CategoryManager() {
     const { t } = useTranslation();
@@ -28,6 +30,25 @@ export function CategoryManager() {
     const [customIcon, setCustomIcon] = useState<string | undefined>();
     const [description, setDescription] = useState('');
     const [showCategoryList, setShowCategoryList] = useState(true);
+
+    // 自訂圖標庫
+    const [customIcons, setCustomIcons] = useState<{ id: string; name: string; data: string }[]>([]);
+
+    // 載入自訂圖標庫
+    const loadCustomIcons = useCallback(async () => {
+        try {
+            const icons = await getAllCustomIcons();
+            setCustomIcons(icons);
+        } catch (e) {
+            console.error('Failed to load custom icons:', e);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (isCategoryManagerOpen) {
+            loadCustomIcons();
+        }
+    }, [isCategoryManagerOpen, loadCustomIcons]);
 
     // 刪除確認對話框狀態
     const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -175,14 +196,42 @@ export function CategoryManager() {
             return;
         }
 
-        if (file.size > 512 * 1024) {
+        if (file.size > 2 * 1024 * 1024) {
             addToast({ type: 'error', message: t('category.manager.imageSizeErr') });
             return;
         }
 
         const reader = new FileReader();
         reader.onload = (event) => {
-            setCustomIcon(event.target?.result as string);
+            const img = new Image();
+            img.onload = () => {
+                // 自動裁剪縮放到 128x128 正方形
+                const SIZE = 128;
+                const canvas = document.createElement('canvas');
+                canvas.width = SIZE;
+                canvas.height = SIZE;
+                const ctx = canvas.getContext('2d')!;
+
+                // 居中裁切：取最短邊為基準
+                const minSide = Math.min(img.width, img.height);
+                const sx = (img.width - minSide) / 2;
+                const sy = (img.height - minSide) / 2;
+
+                ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, SIZE, SIZE);
+                const dataUrl = canvas.toDataURL('image/png');
+                setCustomIcon(dataUrl);
+
+                // 儲存到圖標庫
+                const iconId = uuidv4();
+                const iconName = file.name.replace(/\.[^.]+$/, '');
+                insertCustomIcon({
+                    id: iconId,
+                    name: iconName,
+                    data: dataUrl,
+                    created_at: new Date().toISOString(),
+                }).then(() => loadCustomIcons()).catch(console.error);
+            };
+            img.src = event.target?.result as string;
         };
         reader.readAsDataURL(file);
     };
@@ -225,6 +274,30 @@ export function CategoryManager() {
                                 />
                             </div>
                         </div>
+
+                        {/* 訂閱類別顯示 GitHub URL */}
+                        {editingId && (() => {
+                            const editingCat = categories.find(c => c.id === editingId);
+                            return editingCat?.isSubscription && editingCat?.sourceUrl ? (
+                                <div>
+                                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                        {t('category.manager.sourceUrl')}
+                                    </label>
+                                    <div className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-700 text-gray-600 dark:text-gray-300">
+                                        <Link2 className="w-4 h-4 text-primary-500 flex-shrink-0" />
+                                        <a
+                                            href={editingCat.sourceUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="truncate hover:text-primary-500 transition-colors"
+                                            title={editingCat.sourceUrl}
+                                        >
+                                            {editingCat.sourceUrl}
+                                        </a>
+                                    </div>
+                                </div>
+                            ) : null;
+                        })()}
 
                         <div>
                             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-2">
@@ -272,6 +345,52 @@ export function CategoryManager() {
                                     )}
                                 </label>
                             </div>
+
+                            {/* 自訂圖標庫 */}
+                            {customIcons.length > 0 && (
+                                <div className="mt-2">
+                                    <label className="block text-xs text-gray-400 dark:text-gray-500 mb-1">
+                                        {t('category.manager.iconLibrary')}
+                                    </label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {customIcons.map((icon) => (
+                                            <div key={icon.id} className="relative group/icon">
+                                                <button
+                                                    onClick={() => {
+                                                        setCustomIcon(icon.data);
+                                                        setSelectedIcon('custom');
+                                                    }}
+                                                    className={cn(
+                                                        "p-2 rounded-lg border-2 transition-all",
+                                                        customIcon === icon.data
+                                                            ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 scale-105"
+                                                            : "border-transparent hover:border-gray-300 dark:hover:border-dark-500"
+                                                    )}
+                                                    title={icon.name}
+                                                >
+                                                    <img src={icon.data} alt={icon.name} className="w-7 h-7 object-contain" />
+                                                </button>
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        try {
+                                                            await dbDeleteCustomIcon(icon.id);
+                                                            await loadCustomIcons();
+                                                            addToast({ type: 'success', message: t('category.manager.iconDeleted') });
+                                                        } catch (err) {
+                                                            console.error(err);
+                                                        }
+                                                    }}
+                                                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/icon:opacity-100 transition-opacity"
+                                                    title={t('common.delete')}
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex gap-2">

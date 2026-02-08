@@ -64,6 +64,9 @@ async function runMigrations(database: Database): Promise<void> {
     if (currentVersion < 1) {
         await migrateV1(database);
     }
+    if (currentVersion < 2) {
+        await migrateV2(database);
+    }
 }
 
 /**
@@ -144,6 +147,25 @@ async function migrateV1(database: Database): Promise<void> {
     );
 
 
+}
+
+/**
+ * V2 遷移 - 自訂圖標庫
+ */
+async function migrateV2(database: Database): Promise<void> {
+    await database.execute(`
+    CREATE TABLE IF NOT EXISTS custom_icons (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+
+    await database.execute(
+        'INSERT INTO _migrations (version, applied_at) VALUES (?, ?)',
+        [2, new Date().toISOString()]
+    );
 }
 
 // ==================== Category CRUD ====================
@@ -395,6 +417,34 @@ export async function closeDatabase(): Promise<void> {
     }
 }
 
+
+// ==================== Custom Icon CRUD ====================
+
+export interface CustomIconRow {
+    id: string;
+    name: string;
+    data: string;  // base64 data URI
+    created_at: string;
+}
+
+export async function getAllCustomIcons(): Promise<CustomIconRow[]> {
+    const database = await getDatabase();
+    return database.select<CustomIconRow[]>('SELECT * FROM custom_icons ORDER BY created_at DESC');
+}
+
+export async function insertCustomIcon(icon: CustomIconRow): Promise<void> {
+    const database = await getDatabase();
+    await database.execute(
+        'INSERT INTO custom_icons (id, name, data, created_at) VALUES (?, ?, ?, ?)',
+        [icon.id, icon.name, icon.data, icon.created_at]
+    );
+}
+
+export async function deleteCustomIcon(id: string): Promise<void> {
+    const database = await getDatabase();
+    await database.execute('DELETE FROM custom_icons WHERE id = ?', [id]);
+}
+
 // ==================== Bulk Operations ====================
 
 import type { Category } from '@/types/category';
@@ -495,6 +545,5 @@ export async function clearAllData(): Promise<void> {
     await database.execute('DELETE FROM categories');
     await database.execute('DELETE FROM tags');
     await database.execute('DELETE FROM variables');
-
-
+    await database.execute('DELETE FROM custom_icons');
 }

@@ -33,10 +33,12 @@ export function useDragSort<T>({
         setDraggedId(id);
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', id);
+        document.body.classList.add('is-dragging');
     }, []);
 
     const onDragOver = useCallback((e: DragEvent<HTMLElement>) => {
         e.preventDefault();
+        e.stopPropagation();
         e.dataTransfer.dropEffect = 'move';
     }, []);
 
@@ -57,6 +59,7 @@ export function useDragSort<T>({
 
     const onDrop = useCallback((e: DragEvent<HTMLElement>, targetId: string) => {
         e.preventDefault();
+        document.body.classList.remove('is-dragging');
 
         if (!draggedId || draggedId === targetId) {
             setDraggedId(null);
@@ -85,6 +88,7 @@ export function useDragSort<T>({
     const onDragEnd = useCallback(() => {
         setDraggedId(null);
         setDragOverId(null);
+        document.body.classList.remove('is-dragging');
     }, []);
 
     return {

@@ -3,6 +3,7 @@ import { readTextFile, readDir, readFile } from '@tauri-apps/plugin-fs';
 import i18n from '@/i18n';
 import type { Script, Category, Tag, Variable } from '@/types';
 import type { CategoryExport, UnifiedImportResult, UnifiedManifest } from '@/types/transfer';
+import { insertCustomIcon, type CustomIconRow } from './database';
 
 /**
  * 統一導入 (V2) - 從統一導出格式導入所有資料
@@ -67,6 +68,22 @@ export async function importUnified(): Promise<UnifiedImportResult | null> {
         result.variables = JSON.parse(variablesContent) as Variable[];
     } catch {
         console.warn('No global variables found');
+    }
+
+    // 導入自訂圖標庫
+    try {
+        const iconsPath = `${basePath}/global/custom_icons.json`;
+        const iconsContent = await readTextFile(iconsPath);
+        const customIcons = JSON.parse(iconsContent) as CustomIconRow[];
+        for (const icon of customIcons) {
+            try {
+                await insertCustomIcon(icon);
+            } catch {
+                // 可能已存在，忽略
+            }
+        }
+    } catch {
+        console.warn('No custom icons found');
     }
 
     // 導入類別

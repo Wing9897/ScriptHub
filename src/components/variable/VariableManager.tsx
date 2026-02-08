@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Edit2, Trash2 } from 'lucide-react';
 import { useVariableStore, useUIStore } from '@/stores';
-import { Modal, Button } from '@/components/ui';
+import { Modal, Button, ConfirmDialog } from '@/components/ui';
 
 export function VariableManager() {
     const { t } = useTranslation();
@@ -20,6 +20,7 @@ export function VariableManager() {
     const [name, setName] = useState('');
     const [defaultValue, setDefaultValue] = useState('');
     const [description, setDescription] = useState('');
+    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
     const startAdd = () => {
         setIsAdding(true);
@@ -85,19 +86,24 @@ export function VariableManager() {
         }
     };
 
-    const handleDelete = async (varId: string) => {
-        if (confirm(t('variable.deleteConfirm'))) {
-            try {
-                await deleteVariable(varId);
-                addToast({ type: 'success', message: t('variable.deleted') });
-            } catch (e) {
-                console.error('Failed to delete variable:', e);
-                addToast({ type: 'error', message: t('common.error') });
-            }
+    const handleDelete = (varId: string) => {
+        setDeleteTargetId(varId);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!deleteTargetId) return;
+        try {
+            await deleteVariable(deleteTargetId);
+            addToast({ type: 'success', message: t('variable.deleted') });
+        } catch (e) {
+            console.error('Failed to delete variable:', e);
+            addToast({ type: 'error', message: t('common.error') });
         }
+        setDeleteTargetId(null);
     };
 
     return (
+        <>
         <Modal
             isOpen={isOpen}
             onClose={closeVariableManager}
@@ -191,6 +197,17 @@ export function VariableManager() {
                 )}
             </div>
         </Modal>
+
+        <ConfirmDialog
+            isOpen={!!deleteTargetId}
+            onClose={() => setDeleteTargetId(null)}
+            onConfirm={handleDeleteConfirm}
+            title={t('common.delete')}
+            message={t('variable.deleteConfirm')}
+            confirmText={t('common.delete')}
+            variant="danger"
+        />
+        </>
     );
 }
 
