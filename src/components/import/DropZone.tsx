@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect, DragEvent, ReactNode } from 'react';
+import { useState, useCallback, DragEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
 import { useScriptStore, useUIStore, useCategoryStore } from '@/stores';
 import { parseScriptFile } from '@/utils';
-import { isTauri } from '@tauri-apps/api/core';
+// Tauri native drag-drop disabled; using HTML5 File API instead
 
 // Supported script file extensions and special filenames
 const SCRIPT_EXTENSIONS = [
@@ -56,91 +56,8 @@ export function DropZone({ children }: DropZoneProps) {
     const selectedCategoryId = useCategoryStore((state) => state.selectedCategoryId);
     const [isDragging, setIsDragging] = useState(false);
 
-    // Tauri-specific file drop handler
-    useEffect(() => {
-        if (!isTauri()) return;
-
-        let cleanup: (() => void) | undefined;
-
-        const setupTauriFileDrop = async () => {
-            try {
-                const { getCurrentWindow } = await import('@tauri-apps/api/window');
-                const { readTextFile } = await import('@tauri-apps/plugin-fs');
-
-                const appWindow = getCurrentWindow();
-
-                cleanup = await appWindow.onDragDropEvent(async (event) => {
-                    if (event.payload.type === 'enter' || event.payload.type === 'over') {
-                        setIsDragging(true);
-                    } else if (event.payload.type === 'leave') {
-                        setIsDragging(false);
-                    } else if (event.payload.type === 'drop') {
-                        setIsDragging(false);
-                        const paths = event.payload.paths;
-
-                        // Filter script files
-                        const scriptPaths = paths.filter((p: string) => {
-                            const filename = p.split(/[/\\]/).pop() || '';
-                            return isScriptFile(filename);
-                        });
-
-                        if (scriptPaths.length === 0) {
-                            addToast({ type: 'error', message: t('import.file.unsupportedFormat') });
-                            return;
-                        }
-
-                        let imported = 0;
-                        for (const filePath of scriptPaths) {
-                            try {
-                                const filename = filePath.split(/[/\\]/).pop() || '';
-                                const content = await readTextFile(filePath);
-                                const parsed = parseScriptFile(content, filename);
-
-                                if (parsed.commands.length > 0) {
-                                    await addScript({
-                                        title: parsed.title,
-                                        description: parsed.description,
-                                        platform: parsed.platform,
-                                        commands: parsed.commands.map((cmd, index) => ({
-                                            order: index,
-                                            content: cmd.content,
-                                            description: cmd.description,
-                                        })),
-                                        variables: [],
-                                        tags: [],
-                                        categoryId: selectedCategoryId === 'uncategorized' ? undefined : (selectedCategoryId ?? undefined),
-                                    });
-                                    imported++;
-                                }
-                            } catch (err) {
-                                console.error('Failed to import file:', filePath, err);
-                            }
-                        }
-
-                        if (imported > 0) {
-                            addToast({
-                                type: 'success',
-                                message: t('import.file.batchImportSuccess', { count: imported })
-                            });
-                        } else {
-                            addToast({
-                                type: 'error',
-                                message: t('import.file.parseFail')
-                            });
-                        }
-                    }
-                });
-            } catch (err) {
-                console.error('Failed to setup Tauri file drop:', err);
-            }
-        };
-
-        setupTauriFileDrop();
-
-        return () => {
-            cleanup?.();
-        };
-    }, [addScript, addToast, selectedCategoryId, t]);
+    // File drop is handled via HTML5 drag-and-drop events below
+    // (Tauri native drag-drop is disabled to allow in-app drag sorting)
 
     const handleDragOver = useCallback((e: DragEvent) => {
         e.preventDefault();
@@ -161,12 +78,9 @@ export function DropZone({ children }: DropZoneProps) {
         e.preventDefault();
         e.stopPropagation();
 
-        // Check if we're actually leaving the drop zone container
-        // relatedTarget is the element we're entering - if it's null or outside the container, we're leaving
         const relatedTarget = e.relatedTarget as Node | null;
         const currentTarget = e.currentTarget as HTMLElement;
 
-        // If relatedTarget is null (left window) or not contained within currentTarget, hide overlay
         if (!relatedTarget || !currentTarget.contains(relatedTarget)) {
             setIsDragging(false);
         }
@@ -178,6 +92,10 @@ export function DropZone({ children }: DropZoneProps) {
         setIsDragging(false);
 
         const files = Array.from(e.dataTransfer.files);
+
+        // Ignore internal drag-sort drops (no files involved)
+        if (files.length === 0) return;
+
         const scriptFiles = files.filter((file) => isScriptFile(file.name));
 
         if (scriptFiles.length === 0) {
@@ -224,7 +142,7 @@ export function DropZone({ children }: DropZoneProps) {
                 message: t('import.file.parseFail')
             });
         }
-    }, [addScript, addToast]);
+    }, [addScript, addToast, selectedCategoryId, t]);
 
     return (
         <div
@@ -257,4 +175,3 @@ export function DropZone({ children }: DropZoneProps) {
         </div>
     );
 }
-

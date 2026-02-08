@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { Download, Trash2, AlertTriangle, MonitorUp, FolderOpen, Palette, Moon, Sun, Loader2, CheckCircle, XCircle, Github } from 'lucide-react';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { getVersion } from '@tauri-apps/api/app';
-import { Button } from '@/components/ui';
-import { useScriptStore, useTagStore, useVariableStore, useUIStore, useCategoryStore } from '@/stores';
+import { Button, ConfirmDialog } from '@/components/ui';
+import { useScriptStore, useTagStore, useUIStore, useCategoryStore } from '@/stores';
 import { cn } from '@/utils';
 import { importUnified, exportUnified, initializeGitHubToken, verifyCurrentToken, setManualToken, syncAllToDatabase, clearAllData, type GitHubTokenStatus } from '@/services';
 import { useTranslation } from 'react-i18next';
@@ -14,8 +14,6 @@ export function SettingsPage() {
     const setScripts = useScriptStore((state) => state.setScripts);
     const tags = useTagStore((state) => state.tags);
     const setTags = useTagStore((state) => state.setTags);
-    const variables = useVariableStore((state) => state.variables);
-    const setVariables = useVariableStore((state) => state.setVariables);
     const categories = useCategoryStore((state) => state.categories);
     const setCategories = useCategoryStore((state) => state.setCategories);
     const addToast = useUIStore((state) => state.addToast);
@@ -37,6 +35,11 @@ export function SettingsPage() {
     const [githubStatus, setGithubStatus] = useState<GitHubTokenStatus>({ hasToken: false, source: 'none', isValid: null });
     const [githubChecking, setGithubChecking] = useState(true);
     const [manualToken, setManualTokenInput] = useState('');
+
+    // Confirm dialog states
+    const [importConfirm, setImportConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
+    const [clearStep, setClearStep] = useState<0 | 1 | 2>(0);
+
 
     // 獲取應用版本
     useEffect(() => {
@@ -93,7 +96,7 @@ export function SettingsPage() {
     const handleFolderExport = async () => {
         try {
             setIsExporting(true);
-            const success = await exportUnified(categories, scripts, tags, variables);
+            const success = await exportUnified(categories, scripts, tags, []);
             if (success) {
                 addToast({ type: 'success', message: t('settings.exportSuccess') });
             }
@@ -115,21 +118,22 @@ export function SettingsPage() {
                 categoryCount: result.categories.length,
                 scriptCount: result.scripts.length,
                 tagCount: result.tags.length,
-                varCount: result.variables.length
+                varCount: 0
             });
-            if (!confirm(confirmMsg)) return;
 
-            // 覆蓋所有數據
-            setCategories(result.categories);
-            setScripts(result.scripts);
-            setTags(result.tags);
-            setVariables(result.variables);
-
-            // 同步到 SQLite 數據庫
-            await syncAllToDatabase(result.categories, result.scripts, result.tags, result.variables);
-
-            addToast({ type: 'success', message: t('settings.importSuccess') });
-            closeSettings();
+            const capturedResult = result;
+            setImportConfirm({
+                message: confirmMsg,
+                onConfirm: async () => {
+                    setImportConfirm(null);
+                    setCategories(capturedResult.categories);
+                    setScripts(capturedResult.scripts);
+                    setTags(capturedResult.tags);
+                    await syncAllToDatabase(capturedResult.categories, capturedResult.scripts, capturedResult.tags, []);
+                    addToast({ type: 'success', message: t('settings.importSuccess') });
+                    closeSettings();
+                }
+            });
         } catch (e) {
             console.error('Unified import failed:', e);
             addToast({ type: 'error', message: e instanceof Error ? e.message : t('common.error') });
@@ -139,17 +143,19 @@ export function SettingsPage() {
     };
 
     const handleClearAll = () => {
-        if (!confirm(t('settings.confirmClear'))) return;
-        if (!confirm(t('settings.confirmClearDouble'))) return;
+        setClearStep(1);
+    };
 
+    const handleClearConfirm = () => {
+        if (clearStep === 1) {
+            setClearStep(2);
+            return;
+        }
+        setClearStep(0);
         setScripts([]);
         setTags([]);
-        setVariables([]);
         setCategories([]);
-
-        // 同步到 SQLite 數據庫
         clearAllData().catch(console.error);
-
         addToast({ type: 'success', message: t('settings.clearSuccess') });
         closeSettings();
     };
@@ -162,7 +168,6 @@ export function SettingsPage() {
             <div className="grid grid-cols-4 gap-4">
                 <StatCard label={t('settings.stats.scripts')} count={scripts.length} />
                 <StatCard label={t('settings.stats.tags')} count={tags.length} />
-                <StatCard label={t('settings.stats.variables')} count={variables.length} />
                 <StatCard label={t('settings.stats.categories')} count={categories.length} />
             </div>
 
@@ -455,7 +460,7 @@ export function SettingsPage() {
                             variant="danger"
                             size="sm"
                             onClick={handleClearAll}
-                            disabled={scripts.length === 0 && tags.length === 0 && variables.length === 0 && categories.length === 0}
+                            disabled={scripts.length === 0 && tags.length === 0 && categories.length === 0}
                         >
                             <Trash2 className="w-4 h-4 mr-2" />
                             {t('settings.clearAll')}
@@ -467,6 +472,28 @@ export function SettingsPage() {
             <div className="text-center text-xs text-gray-400 dark:text-gray-600 pt-4 pb-8">
                 ScriptHub v{appVersion}
             </div>
+
+            {/* Import confirmation dialog */}
+            <ConfirmDialog
+                isOpen={!!importConfirm}
+                onClose={() => setImportConfirm(null)}
+                onConfirm={() => importConfirm?.onConfirm()}
+                title={t('settings.import')}
+                message={importConfirm?.message || ''}
+                confirmText={t('common.confirm')}
+                variant="warning"
+            />
+
+            {/* Clear all data confirmation dialog (2-step) */}
+            <ConfirmDialog
+                isOpen={clearStep > 0}
+                onClose={() => setClearStep(0)}
+                onConfirm={handleClearConfirm}
+                title={t('settings.clearAll')}
+                message={clearStep === 1 ? t('settings.confirmClear') : t('settings.confirmClearDouble')}
+                confirmText={t('common.confirm')}
+                variant="danger"
+            />
         </div>
     );
 }

@@ -6,3 +6,5 @@ export { ToastContainer } from './Toast';
 export { Select } from './Select';
 export { ThemeToggle } from './ThemeToggle';
 export { ConfirmDialog } from './ConfirmDialog';
+export { ContextMenu } from './ContextMenu';
+export type { ContextMenuItem } from './ContextMenu';

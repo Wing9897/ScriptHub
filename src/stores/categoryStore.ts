@@ -125,7 +125,7 @@ export const useCategoryStore = create<CategoryState>()((set, get) => ({
     },
 
     // 訂閱相關方法
-    addSubscription: async (name, sourceUrl, icon = 'terminal') => {
+    addSubscription: async (name, sourceUrl, icon = 'github') => {
         const categories = get().categories;
         const now = new Date().toISOString();
         const category: Category = {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Edit2, Trash2, Check, X } from 'lucide-react';
 import { useTagStore, useUIStore } from '@/stores';
-import { Modal, Button } from '@/components/ui';
+import { Modal, Button, ConfirmDialog } from '@/components/ui';
 import { TAG_COLORS } from '@/types';
 import { cn } from '@/utils/cn';
 
@@ -22,6 +22,7 @@ export function TagManager() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [name, setName] = useState('');
     const [color, setColor] = useState('');
+    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
     const startAdd = () => {
         setIsAdding(true);
@@ -72,19 +73,24 @@ export function TagManager() {
         }
     };
 
-    const handleDelete = async (tagId: string) => {
-        if (confirm(t('tag.deleteConfirm'))) {
-            try {
-                await deleteTag(tagId);
-                addToast({ type: 'success', message: t('tag.deleted') });
-            } catch (e) {
-                console.error('Failed to delete tag:', e);
-                addToast({ type: 'error', message: t('common.error') });
-            }
+    const handleDelete = (tagId: string) => {
+        setDeleteTargetId(tagId);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!deleteTargetId) return;
+        try {
+            await deleteTag(deleteTargetId);
+            addToast({ type: 'success', message: t('tag.deleted') });
+        } catch (e) {
+            console.error('Failed to delete tag:', e);
+            addToast({ type: 'error', message: t('common.error') });
         }
+        setDeleteTargetId(null);
     };
 
     return (
+        <>
         <Modal
             isOpen={isOpen}
             onClose={closeTagManager}
@@ -159,6 +165,17 @@ export function TagManager() {
                 )}
             </div>
         </Modal>
+
+        <ConfirmDialog
+            isOpen={!!deleteTargetId}
+            onClose={() => setDeleteTargetId(null)}
+            onConfirm={handleDeleteConfirm}
+            title={t('common.delete')}
+            message={t('tag.deleteConfirm')}
+            confirmText={t('common.delete')}
+            variant="danger"
+        />
+        </>
     );
 }
 

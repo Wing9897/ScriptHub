@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useTranslation } from 'react-i18next';
 import { useUIStore, useVariableStore } from '@/stores';
 import { Modal, Button } from '@/components/ui';
@@ -35,7 +36,7 @@ export function VariableInput() {
         const result = replaceVariables(pendingCopyText, values);
 
         try {
-            await navigator.clipboard.writeText(result);
+            await writeText(result);
             addToast({ type: 'success', message: t('variable.copySuccess') });
             closeVariableInput();
         } catch (err) {

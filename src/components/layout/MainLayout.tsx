@@ -6,8 +6,6 @@ import { ScriptGrid } from '@/components/script/ScriptGrid';
 import { ScriptDetail } from '@/components/script/ScriptDetail';
 import { ScriptEditor } from '@/components/script/ScriptEditor';
 import { TagManager } from '@/components/tag/TagManager';
-import { VariableManager } from '@/components/variable/VariableManager';
-import { VariableInput } from '@/components/variable/VariableInput';
 import { DropZone } from '@/components/import/DropZone';
 import { CategoryGrid, CategoryManager } from '@/components/category';
 import { SubscribeModal } from '@/components/subscription/SubscribeModal';
@@ -18,8 +16,6 @@ export function MainLayout() {
     const { t } = useTranslation();
     const isScriptEditorOpen = useUIStore((state) => state.isScriptEditorOpen);
     const isTagManagerOpen = useUIStore((state) => state.isTagManagerOpen);
-    const isVariableManagerOpen = useUIStore((state) => state.isVariableManagerOpen);
-    const isVariableInputOpen = useUIStore((state) => state.isVariableInputOpen);
     const isCategoryManagerOpen = useUIStore((state) => state.isCategoryManagerOpen);
     const isSettingsOpen = useUIStore((state) => state.isSettingsOpen);
     const closeSettings = useUIStore((state) => state.closeSettings);
@@ -106,8 +102,6 @@ export function MainLayout() {
                 {selectedScriptId && <ScriptDetail />}
                 {isScriptEditorOpen && <ScriptEditor />}
                 {isTagManagerOpen && <TagManager />}
-                {isVariableManagerOpen && <VariableManager />}
-                {isVariableInputOpen && <VariableInput />}
                 {isCategoryManagerOpen && <CategoryManager />}
                 {/* SettingsModal removed, replaced by SettingsPage */}
                 <SubscribeModal isOpen={isSubscribeModalOpen} onClose={closeSubscribeModal} />

@@ -14,7 +14,6 @@ export function ScriptGrid() {
     const viewMode = useUIStore((state) => state.viewMode);
     const showOnlyFavorites = useUIStore((state) => state.showOnlyFavorites);
     const openScriptEditor = useUIStore((state) => state.openScriptEditor);
-    const addToast = useUIStore((state) => state.addToast);
 
     const getFilteredScripts = useScriptStore((state) => state.getFilteredScripts);
     const reorderScripts = useScriptStore((state) => state.reorderScripts);
@@ -69,7 +68,6 @@ export function ScriptGrid() {
         onReorder: (newItems) => {
             const categoryId = selectedCategoryId === 'uncategorized' ? null : (selectedCategoryId || null);
             reorderScripts(categoryId, newItems.map(s => s.id));
-            addToast({ type: 'success', message: t('script.reorderSuccess') });
         },
     });
 
