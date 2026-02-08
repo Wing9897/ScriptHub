@@ -1,5 +1,7 @@
 # 🎯 ScriptHub
 
+[English](README.en.md) | 繁體中文 | [简体中文](README.zh-CN.md)
+
 跨平台命令腳本管理工具 — 高效儲存、組織和分享你的常用命令
 
 ![Tauri](https://img.shields.io/badge/Tauri-2.0-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue) ![License](https://img.shields.io/badge/License-MIT-green)
