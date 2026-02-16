@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { Category, NewCategory } from '@/types/category';
+import type { Category, NewCategory, CategoryTreeNode } from '@/types/category';
 import {
     insertCategory,
     updateCategory as dbUpdateCategory,
@@ -12,10 +12,11 @@ interface CategoryState {
     categories: Category[];
     selectedCategoryId: string | null;
     searchQuery: string;
+    expandedCategoryIds: Set<string>;
 
     // Methods
     setSearchQuery: (query: string) => void;
-    addCategory: (category: NewCategory) => Promise<Category>;
+    addCategory: (category: NewCategory, parentId?: string | null) => Promise<Category>;
     updateCategory: (id: string, updates: Partial<Omit<Category, 'id' | 'createdAt'>>) => Promise<void>;
     deleteCategory: (id: string) => Promise<void>;
     setSelectedCategory: (id: string | null) => void;
@@ -23,9 +24,17 @@ interface CategoryState {
     setCategories: (categories: Category[]) => void;
 
     // 訂閱相關方法
-    addSubscription: (name: string, sourceUrl: string, icon?: string) => Promise<Category>;
+    addSubscription: (name: string, sourceUrl: string, icon?: string, parentId?: string | null) => Promise<Category>;
     updateSubscriptionSync: (id: string) => Promise<void>;
     getSubscriptions: () => Category[];
+
+    // 樹狀結構方法
+    getCategoryTree: () => CategoryTreeNode[];
+    getChildCategories: (parentId: string | null) => Category[];
+    getDescendantIds: (id: string) => string[];
+    getCategoryPath: (id: string) => Category[];
+    toggleCategoryExpand: (id: string) => void;
+    setExpandedCategoryIds: (ids: Set<string>) => void;
 }
 
 // Helper: Category -> CategoryRow
@@ -40,25 +49,53 @@ function categoryToRow(category: Category): CategoryRow {
         created_at: category.createdAt,
         is_subscription: category.isSubscription ? 1 : 0,
         source_url: category.sourceUrl || null,
-        last_synced_at: category.lastSyncedAt || null
+        last_synced_at: category.lastSyncedAt || null,
+        parent_id: category.parentId || null
     };
+}
+
+// Helper: 建構樹狀結構
+function buildCategoryTree(categories: Category[], parentId: string | null = null, level: number = 0): CategoryTreeNode[] {
+    return categories
+        .filter(cat => (cat.parentId || null) === parentId)
+        .sort((a, b) => a.order - b.order)
+        .map(cat => ({
+            ...cat,
+            level,
+            children: buildCategoryTree(categories, cat.id, level + 1)
+        }));
+}
+
+// Helper: 獲取所有子孫 ID
+function getAllDescendantIds(categories: Category[], parentId: string): string[] {
+    const children = categories.filter(cat => cat.parentId === parentId);
+    const descendantIds: string[] = [];
+    for (const child of children) {
+        descendantIds.push(child.id);
+        descendantIds.push(...getAllDescendantIds(categories, child.id));
+    }
+    return descendantIds;
 }
 
 export const useCategoryStore = create<CategoryState>()((set, get) => ({
     categories: [],
     selectedCategoryId: null,
     searchQuery: '',
+    expandedCategoryIds: new Set<string>(),
 
     setSearchQuery: (query) => set({ searchQuery: query }),
 
     setCategories: (categories) => set({ categories }),
 
-    addCategory: async (newCategory) => {
+    addCategory: async (newCategory, parentId = null) => {
         const categories = get().categories;
+        // 計算同層級的 order
+        const siblings = categories.filter(c => (c.parentId || null) === parentId);
         const category: Category = {
             id: uuidv4(),
             ...newCategory,
-            order: categories.length,
+            parentId,
+            order: siblings.length,
             createdAt: new Date().toISOString(),
         };
 
@@ -82,6 +119,7 @@ export const useCategoryStore = create<CategoryState>()((set, get) => ({
         if (updates.isSubscription !== undefined) dbUpdates.is_subscription = updates.isSubscription ? 1 : 0;
         if (updates.sourceUrl !== undefined) dbUpdates.source_url = updates.sourceUrl || null;
         if (updates.lastSyncedAt !== undefined) dbUpdates.last_synced_at = updates.lastSyncedAt || null;
+        if (updates.parentId !== undefined) dbUpdates.parent_id = updates.parentId || null;
 
         await dbUpdateCategory(id, dbUpdates);
 
@@ -94,14 +132,20 @@ export const useCategoryStore = create<CategoryState>()((set, get) => ({
     },
 
     deleteCategory: async (id) => {
-        // 1. 刪除 SQLite
-        await dbDeleteCategory(id);
+        // 獲取所有子孫 ID，一併刪除
+        const descendantIds = get().getDescendantIds(id);
+        const idsToDelete = [id, ...descendantIds];
+
+        // 1. 刪除 SQLite (子孫會因為 CASCADE 或手動刪除)
+        for (const deleteId of idsToDelete) {
+            await dbDeleteCategory(deleteId);
+        }
 
         // 2. 更新 Store
         set((state) => ({
-            categories: state.categories.filter((cat) => cat.id !== id),
+            categories: state.categories.filter((cat) => !idsToDelete.includes(cat.id)),
             selectedCategoryId:
-                state.selectedCategoryId === id ? null : state.selectedCategoryId,
+                idsToDelete.includes(state.selectedCategoryId || '') ? null : state.selectedCategoryId,
         }));
     },
 
@@ -125,18 +169,21 @@ export const useCategoryStore = create<CategoryState>()((set, get) => ({
     },
 
     // 訂閱相關方法
-    addSubscription: async (name, sourceUrl, icon = 'github') => {
+    addSubscription: async (name, sourceUrl, icon = 'github', parentId = null) => {
         const categories = get().categories;
         const now = new Date().toISOString();
+        // 計算同層級的 order
+        const siblings = categories.filter(c => (c.parentId || null) === parentId);
         const category: Category = {
             id: uuidv4(),
             name,
             icon,
-            order: categories.length,
+            order: siblings.length,
             createdAt: now,
             isSubscription: true,
             sourceUrl,
             lastSyncedAt: now,
+            parentId,
         };
 
         // 1. 寫入 SQLite
@@ -164,5 +211,51 @@ export const useCategoryStore = create<CategoryState>()((set, get) => ({
 
     getSubscriptions: () => {
         return get().categories.filter((cat) => cat.isSubscription);
+    },
+
+    // 樹狀結構方法
+    getCategoryTree: () => {
+        return buildCategoryTree(get().categories);
+    },
+
+    getChildCategories: (parentId) => {
+        return get().categories.filter(cat => (cat.parentId || null) === parentId);
+    },
+
+    getDescendantIds: (id) => {
+        return getAllDescendantIds(get().categories, id);
+    },
+
+    getCategoryPath: (id) => {
+        const categories = get().categories;
+        const path: Category[] = [];
+        let current = categories.find(c => c.id === id);
+
+        while (current) {
+            path.unshift(current);
+            if (current.parentId) {
+                current = categories.find(c => c.id === current!.parentId);
+            } else {
+                break;
+            }
+        }
+
+        return path;
+    },
+
+    toggleCategoryExpand: (id) => {
+        set((state) => {
+            const newSet = new Set(state.expandedCategoryIds);
+            if (newSet.has(id)) {
+                newSet.delete(id);
+            } else {
+                newSet.add(id);
+            }
+            return { expandedCategoryIds: newSet };
+        });
+    },
+
+    setExpandedCategoryIds: (ids) => {
+        set({ expandedCategoryIds: ids });
     },
 }));

@@ -9,9 +9,11 @@ import { ContextMenu, ConfirmDialog } from '@/components/ui';
 
 interface ScriptListItemProps {
     script: Script;
+    onSelect?: (e: React.MouseEvent, scriptId: string) => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-export function ScriptListItem({ script }: ScriptListItemProps) {
+export function ScriptListItem({ script, onSelect, onContextMenu: parentContextMenu }: ScriptListItemProps) {
     const { t } = useTranslation();
     const setSelectedScript = useScriptStore((state) => state.setSelectedScript);
     const toggleFavorite = useScriptStore((state) => state.toggleFavorite);
@@ -30,7 +32,12 @@ export function ScriptListItem({ script }: ScriptListItemProps) {
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY });
+        // 如果有父級的 contextMenu 處理器，使用它（支持多選右鍵菜單）
+        if (parentContextMenu) {
+            parentContextMenu(e);
+        } else {
+            setContextMenu({ x: e.clientX, y: e.clientY });
+        }
     };
 
     const handleDelete = async () => {
@@ -46,7 +53,13 @@ export function ScriptListItem({ script }: ScriptListItemProps) {
     return (
         <>
             <div
-                onClick={() => setSelectedScript(script.id)}
+                onClick={(e) => {
+                    if (onSelect) {
+                        onSelect(e, script.id);
+                    } else {
+                        setSelectedScript(script.id);
+                    }
+                }}
                 onContextMenu={handleContextMenu}
                 className={cn(
                     'group flex items-center gap-4 bg-white dark:bg-dark-800 rounded-lg border-2 px-4 py-3 cursor-pointer transition-all hover:shadow-md',

@@ -113,6 +113,10 @@ pub fn run() {
             quit_app
         ])
         .setup(|app| {
+            // 檢查是否有 --minimized 參數
+            let args: Vec<String> = std::env::args().collect();
+            let start_minimized = args.iter().any(|arg| arg == "--minimized");
+
             // 創建托盤右鍵菜單
             let show_item = MenuItem::with_id(app, "show", "顯示主窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -149,6 +153,13 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // 如果是靜默啟動，隱藏窗口
+            if start_minimized {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
 
             Ok(())
         })

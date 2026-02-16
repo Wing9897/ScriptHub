@@ -89,9 +89,7 @@ export function MainLayout() {
                                 {isInCategoryView ? (
                                     <CategoryGrid />
                                 ) : (
-                                    <div className="p-6">
-                                        <ScriptGrid />
-                                    </div>
+                                    <ScriptGrid />
                                 )}
                             </div>
                         )}

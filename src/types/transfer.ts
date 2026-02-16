@@ -27,7 +27,9 @@ export interface CategoryExport {
     isSubscription?: boolean;
     sourceUrl?: string;
     lastSyncedAt?: string;
+    parentId?: string | null;
     scripts: ScriptExport[];
+    subcategories?: CategoryExport[];  // 子類別（遞迴結構）
 }
 
 // 腳本導出格式

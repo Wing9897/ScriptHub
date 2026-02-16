@@ -1,4 +1,4 @@
-import { ArrowLeft, Search, LayoutGrid, List, Plus, Settings } from 'lucide-react';
+import { ArrowLeft, Search, LayoutGrid, List, Plus, Settings, Home, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore, useScriptStore, useCategoryStore } from '@/stores';
 import { Button, ThemeToggle } from '@/components/ui';
@@ -26,6 +26,9 @@ export function TopBar({ mode, title, onBack }: TopBarProps) {
     const categorySearchQuery = useCategoryStore((state) => state.searchQuery);
     const setCategorySearchQuery = useCategoryStore((state) => state.setSearchQuery);
     const openCategoryManager = useUIStore((state) => state.openCategoryManager);
+    const selectedCategoryId = useCategoryStore((state) => state.selectedCategoryId);
+    const setSelectedCategory = useCategoryStore((state) => state.setSelectedCategory);
+    const getCategoryPath = useCategoryStore((state) => state.getCategoryPath);
 
     // UI Store (Settings)
     const openSettings = useUIStore((state) => state.openSettings);
@@ -35,23 +38,61 @@ export function TopBar({ mode, title, onBack }: TopBarProps) {
     const setSearchQuery = mode === 'category' ? setCategorySearchQuery : setScriptSearchQuery;
     const searchPlaceholder = mode === 'category' ? t('topbar.searchCategory') : t('topbar.searchScript');
 
+    // 獲取麵包屑路徑
+    const breadcrumbPath = selectedCategoryId && selectedCategoryId !== 'uncategorized'
+        ? getCategoryPath(selectedCategoryId)
+        : [];
+
     return (
         <header className="h-14 bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700 flex items-center px-4 gap-3 shrink-0">
-            {/* Left Section: Back Button & Title */}
-            <div className="flex items-center gap-2 mr-2">
-                {onBack && (
-                    <button
-                        onClick={onBack}
-                        className="p-1.5 text-gray-500 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-lg transition-colors"
-                        title={t('topbar.back')}
-                    >
-                        <ArrowLeft className="w-4 h-4" />
-                    </button>
+            {/* Left Section: Breadcrumb Navigation or Back Button & Title */}
+            <div className="flex items-center gap-1 mr-2 min-w-0 flex-shrink">
+                {mode === 'script' && breadcrumbPath.length > 0 ? (
+                    // 麵包屑導航
+                    <nav className="flex items-center gap-1 text-sm overflow-hidden">
+                        <button
+                            onClick={() => setSelectedCategory(null)}
+                            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-dark-700 text-gray-500 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 transition-colors whitespace-nowrap"
+                            title={t('topbar.home')}
+                        >
+                            <Home className="w-4 h-4" />
+                        </button>
+                        {breadcrumbPath.map((cat, index) => (
+                            <div key={cat.id} className="flex items-center gap-1 min-w-0">
+                                <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                                {index === breadcrumbPath.length - 1 ? (
+                                    <span className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-[150px]">
+                                        {cat.name}
+                                    </span>
+                                ) : (
+                                    <button
+                                        onClick={() => setSelectedCategory(cat.id)}
+                                        className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-dark-700 text-gray-600 hover:text-primary-600 dark:text-gray-300 dark:hover:text-primary-400 transition-colors truncate max-w-[120px]"
+                                    >
+                                        {cat.name}
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </nav>
+                ) : (
+                    // 原有的返回按鈕和標題
+                    <>
+                        {onBack && (
+                            <button
+                                onClick={onBack}
+                                className="p-1.5 text-gray-500 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-lg transition-colors"
+                                title={t('topbar.back')}
+                            >
+                                <ArrowLeft className="w-4 h-4" />
+                            </button>
+                        )}
+                        <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-lg whitespace-nowrap">
+                            {title}
+                        </h2>
+                    </>
                 )}
-                <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-lg whitespace-nowrap">
-                    {title}
-                </h2>
-                {mode === 'script' && <span className="text-gray-300 dark:text-gray-600">|</span>}
+                {mode === 'script' && !breadcrumbPath.length && <span className="text-gray-300 dark:text-gray-600">|</span>}
             </div>
 
             {/* Middle Section: Search (Hidden in Settings mode) */}

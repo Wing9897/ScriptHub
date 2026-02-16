@@ -59,7 +59,8 @@ export async function loadAllData(): Promise<{
         createdAt: row.created_at,
         isSubscription: row.is_subscription === 1,
         sourceUrl: row.source_url || undefined,
-        lastSyncedAt: row.last_synced_at || undefined
+        lastSyncedAt: row.last_synced_at || undefined,
+        parentId: row.parent_id || undefined
     }));
 
     const scripts: Script[] = scriptRows.map(row => ({
