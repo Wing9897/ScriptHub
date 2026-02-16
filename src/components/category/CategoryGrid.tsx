@@ -1,10 +1,10 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, FolderOpen, Link2, RefreshCw, Loader2, MoreVertical, Edit2, Trash2 } from 'lucide-react';
+import { Plus, FolderOpen, Link2, RefreshCw, Loader2, MoreVertical, Edit2, Trash2, Check } from 'lucide-react';
 import { useCategoryStore, useScriptStore, useUIStore } from '@/stores';
 import { cn, getCategoryIconSrc } from '@/utils';
 import { parseGitHubUrl, downloadRepoWithFallback } from '@/services/githubService';
-import { useDragSort } from '@/hooks';
+import { useDragSort, useKeyboardShortcuts, useBoxSelection } from '@/hooks';
 import { ContextMenu, ConfirmDialog } from '@/components/ui';
 import type { ContextMenuItem } from '@/components/ui';
 import type { Category } from '@/types';
@@ -24,14 +24,23 @@ export function CategoryGrid() {
     const viewMode = useUIStore((state) => state.viewMode);
     const categorySearch = useCategoryStore((state) => state.searchQuery);
 
+    // 多選狀態
+    const selectedCategoryIds = useUIStore((state) => state.selectedCategoryIds);
+    const toggleCategorySelection = useUIStore((state) => state.toggleCategorySelection);
+    const selectAllCategories = useUIStore((state) => state.selectAllCategories);
+    const clearSelection = useUIStore((state) => state.clearSelection);
+    const setSelectedCategoryIds = useUIStore((state) => state.setSelectedCategoryIds);
+
     const [syncingId, setSyncingId] = useState<string | null>(null);
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // Context menu state
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; category: Category } | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; category: Category | null } | null>(null);
     // Delete confirm state
     const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+    const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
 
     const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
@@ -39,7 +48,40 @@ export function CategoryGrid() {
         e.preventDefault();
         e.stopPropagation();
         setOpenMenuId(null);
+        // 如果右鍵點擊的類別不在選中列表中，則選中它
+        if (!selectedCategoryIds.has(category.id)) {
+            toggleCategorySelection(category.id, false);
+        }
         setContextMenu({ x: e.clientX, y: e.clientY, category });
+    };
+
+    // 處理類別點擊
+    const handleCategoryClick = (e: React.MouseEvent, categoryId: string) => {
+        if (e.ctrlKey || e.metaKey) {
+            // Ctrl+Click: 多選
+            e.preventDefault();
+            toggleCategorySelection(categoryId, true);
+        } else {
+            // 普通點擊: 進入類別
+            clearSelection();
+            setSelectedCategory(categoryId);
+        }
+    };
+
+    // 批量刪除
+    const handleBatchDelete = async () => {
+        const idsToDelete = Array.from(selectedCategoryIds);
+        for (const id of idsToDelete) {
+            const category = categories.find(c => c.id === id);
+            if (category?.isSubscription) {
+                const updatedScripts = scripts.filter(s => s.categoryId !== id);
+                setScripts(updatedScripts);
+            }
+            await deleteCategory(id);
+        }
+        addToast({ type: 'success', message: t('category.manager.batchDeleteSuccess', { count: idsToDelete.length }) });
+        clearSelection();
+        setBatchDeleteConfirm(false);
     };
 
     const handleDeleteCategory = async (category: Category) => {
@@ -82,9 +124,11 @@ export function CategoryGrid() {
         return { counts, uncategorizedCount };
     }, [scripts]);
 
-    // 排序類別
+    // 排序類別 - 只顯示根類別（沒有 parentId 的）
     const sortedCategories = useMemo(() => {
-        return [...categories].sort((a, b) => a.order - b.order);
+        return [...categories]
+            .filter(cat => !cat.parentId)
+            .sort((a, b) => a.order - b.order);
     }, [categories]);
 
     // 過濾類別 (搜索時)
@@ -117,9 +161,59 @@ export function CategoryGrid() {
 
     const isDragEnabled = !categorySearch.trim();
 
+    // 鍵盤快捷鍵
+    useKeyboardShortcuts({
+        onDelete: () => {
+            if (selectedCategoryIds.size > 0) {
+                setBatchDeleteConfirm(true);
+            }
+        },
+        onSelectAll: () => {
+            const ids = filteredCategories.map(c => c.id);
+            selectAllCategories(ids);
+        },
+        enabled: true,
+    });
+
+    // 框選功能
+    const { handleMouseDown, selectionBox } = useBoxSelection({
+        containerRef: containerRef as React.RefObject<HTMLElement>,
+        targets: [{
+            selector: '[data-category-id]',
+            getItemId: (element) => element.getAttribute('data-category-id'),
+            onSelectionChange: (selectedIds) => {
+                setSelectedCategoryIds(selectedIds);
+            },
+            currentSelection: selectedCategoryIds,
+        }],
+        enabled: !categorySearch.trim(),
+    });
+
     // Build context menu items for a category
-    const getContextMenuItems = (category: Category): ContextMenuItem[] => {
+    const getContextMenuItems = (category: Category | null): ContextMenuItem[] => {
         const items: ContextMenuItem[] = [];
+        const selectedCount = selectedCategoryIds.size;
+
+        // 空白處右鍵菜單
+        if (!category) {
+            items.push({
+                label: t('category.manager.createTitle'),
+                icon: <Plus className="w-4 h-4" />,
+                onClick: () => openCategoryManager(),
+            });
+            return items;
+        }
+
+        // 批量刪除選項（多選時）
+        if (selectedCount > 1) {
+            items.push({
+                label: t('category.manager.batchDelete', { count: selectedCount }),
+                icon: <Trash2 className="w-4 h-4" />,
+                onClick: () => setBatchDeleteConfirm(true),
+                variant: 'danger',
+            });
+            return items;
+        }
 
         if (category.isSubscription && category.sourceUrl) {
             items.push({
@@ -225,7 +319,36 @@ export function CategoryGrid() {
         : '';
 
     return (
-        <div className={cn("p-6 min-h-full bg-gray-50 dark:bg-dark-900")}>
+        <div
+            ref={containerRef}
+            className={cn("p-6 min-h-full bg-gray-50 dark:bg-dark-900 relative select-none")}
+            onClick={(e) => {
+                // 點擊空白處清除選擇
+                if (e.target === e.currentTarget) {
+                    clearSelection();
+                }
+            }}
+            onMouseDown={handleMouseDown}
+            onContextMenu={(e) => {
+                // 空白處右鍵菜單
+                if (e.target === e.currentTarget) {
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY, category: null as unknown as Category });
+                }
+            }}
+        >
+            {/* 框選視覺效果 */}
+            {selectionBox && (
+                <div
+                    className="absolute border-2 border-primary-500 bg-primary-500/10 pointer-events-none z-50"
+                    style={{
+                        left: selectionBox.left,
+                        top: selectionBox.top,
+                        width: selectionBox.width,
+                        height: selectionBox.height,
+                    }}
+                />
+            )}
             {/* Grid View */}
             {viewMode === 'grid' && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -255,11 +378,13 @@ export function CategoryGrid() {
                     {filteredCategories.map((category) => (
                         <div
                             key={category.id}
+                            data-category-id={category.id}
                             className={cn(
                                 "relative group",
                                 isDragEnabled && "cursor-grab active:cursor-grabbing",
                                 draggedId === category.id && "opacity-50",
-                                dragOverId === category.id && "ring-2 ring-primary-500 ring-offset-2"
+                                dragOverId === category.id && "ring-2 ring-primary-500 ring-offset-2",
+                                selectedCategoryIds.has(category.id) && "ring-2 ring-primary-500"
                             )}
                             draggable={isDragEnabled}
                             onDragStart={(e) => isDragEnabled && onDragStart(e, category.id)}
@@ -270,20 +395,28 @@ export function CategoryGrid() {
                             onDragEnd={onDragEnd}
                             onContextMenu={(e) => handleContextMenu(e, category)}
                         >
+                            {/* 選中標記 */}
+                            {selectedCategoryIds.has(category.id) && (
+                                <div className="absolute top-2 left-2 z-20 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
+                                    <Check className="w-3 h-3 text-white" />
+                                </div>
+                            )}
 
                             <button
-                                onClick={() => setSelectedCategory(category.id)}
+                                onClick={(e) => handleCategoryClick(e, category.id)}
                                 className={cn(
                                     "flex flex-col items-center p-4 rounded-xl border-2 w-full",
-                                    "border-gray-200 dark:border-dark-600",
+                                    selectedCategoryIds.has(category.id)
+                                        ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
+                                        : "border-gray-200 dark:border-dark-600",
                                     "hover:border-primary-400 dark:hover:border-primary-500",
                                     "hover:bg-primary-50 dark:hover:bg-primary-900/10",
                                     "hover:shadow-md",
                                     "transition-all duration-200"
                                 )}
                             >
-                                {/* 訂閱標記 */}
-                                {category.isSubscription && (
+                                {/* 訂閱標記 - 只在未選中時顯示 */}
+                                {category.isSubscription && !selectedCategoryIds.has(category.id) && (
                                     <div className="absolute top-2 left-2">
                                         <Link2 className="w-3.5 h-3.5 text-primary-500" />
                                     </div>
@@ -412,11 +545,13 @@ export function CategoryGrid() {
                     {filteredCategories.map((category) => (
                         <div
                             key={category.id}
+                            data-category-id={category.id}
                             className={cn(
                                 "relative group",
                                 isDragEnabled && "cursor-grab active:cursor-grabbing",
                                 draggedId === category.id && "opacity-50",
-                                dragOverId === category.id && "ring-2 ring-primary-500 ring-offset-2 rounded-lg"
+                                dragOverId === category.id && "ring-2 ring-primary-500 ring-offset-2 rounded-lg",
+                                selectedCategoryIds.has(category.id) && "ring-2 ring-primary-500 rounded-lg"
                             )}
                             draggable={isDragEnabled}
                             onDragStart={(e) => isDragEnabled && onDragStart(e, category.id)}
@@ -427,10 +562,21 @@ export function CategoryGrid() {
                             onDragEnd={onDragEnd}
                             onContextMenu={(e) => handleContextMenu(e, category)}
                         >
-
+                            {/* 選中標記 */}
+                            {selectedCategoryIds.has(category.id) && (
+                                <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
+                                    <Check className="w-3 h-3 text-white" />
+                                </div>
+                            )}
                             <button
-                                onClick={() => setSelectedCategory(category.id)}
-                                className="w-full flex items-center gap-4 p-3 rounded-lg border border-gray-200 dark:border-dark-600 hover:border-primary-400 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 transition-all"
+                                onClick={(e) => handleCategoryClick(e, category.id)}
+                                className={cn(
+                                    "w-full flex items-center gap-4 p-3 rounded-lg border",
+                                    selectedCategoryIds.has(category.id)
+                                        ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
+                                        : "border-gray-200 dark:border-dark-600",
+                                    "hover:border-primary-400 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 transition-all"
+                                )}
                             >
                                 <div className="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-dark-700 rounded-lg overflow-hidden">
                                     <img
@@ -525,6 +671,17 @@ export function CategoryGrid() {
                 title={deleteTarget?.isSubscription ? t('category.manager.unsubscribe') : t('common.delete')}
                 message={deleteConfirmMessage}
                 confirmText={deleteTarget?.isSubscription ? t('category.manager.unsubscribe') : t('common.delete')}
+                variant="danger"
+            />
+
+            {/* Batch delete confirmation dialog */}
+            <ConfirmDialog
+                isOpen={batchDeleteConfirm}
+                onClose={() => setBatchDeleteConfirm(false)}
+                onConfirm={handleBatchDelete}
+                title={t('common.delete')}
+                message={t('category.manager.batchDeleteConfirm', { count: selectedCategoryIds.size })}
+                confirmText={t('common.delete')}
                 variant="danger"
             />
         </div>

@@ -11,11 +11,24 @@ import { Loader2 } from 'lucide-react';
 function App() {
     const { t } = useTranslation();
     const theme = useUIStore((state) => state.theme);
+    const startMinimized = useUIStore((state) => state.startMinimized);
     const { isLoading, error } = useStorageInit();
     const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
 
     // Initialize keyboard shortcuts
     useShortcuts();
+
+    // 處理靜默啟動：如果設定為不靜默啟動，則顯示窗口
+    useEffect(() => {
+        if (typeof window !== 'undefined' && (window as any).__TAURI__ && !isLoading) {
+            // 如果用戶設定不要靜默啟動，則顯示窗口
+            if (!startMinimized) {
+                const appWindow = getCurrentWindow();
+                appWindow.show();
+                appWindow.setFocus();
+            }
+        }
+    }, [isLoading, startMinimized]);
 
     useEffect(() => {
         const root = window.document.documentElement;

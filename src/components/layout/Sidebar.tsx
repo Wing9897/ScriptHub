@@ -18,6 +18,7 @@ import { useUIStore, useTagStore, useScriptStore, useCategoryStore } from '@/sto
 import { cn } from '@/utils/cn';
 import { getCategoryIconSrc } from '@/utils/categoryIcons';
 import { useTranslation } from 'react-i18next';
+import type { CategoryTreeNode } from '@/types/category';
 
 interface SidebarProps {
     mode: 'category' | 'script';
@@ -46,6 +47,9 @@ export function Sidebar({ mode }: SidebarProps) {
 
     const categories = useCategoryStore((state) => state.categories);
     const setSelectedCategory = useCategoryStore((state) => state.setSelectedCategory);
+    const getCategoryTree = useCategoryStore((state) => state.getCategoryTree);
+    const expandedCategoryIds = useCategoryStore((state) => state.expandedCategoryIds);
+    const toggleCategoryExpand = useCategoryStore((state) => state.toggleCategoryExpand);
 
     const [recentExpanded, setRecentExpanded] = useState(false);
 
@@ -72,9 +76,26 @@ export function Sidebar({ mode }: SidebarProps) {
         return { counts, uncategorizedCount };
     }, [scripts]);
 
-    const sortedCategories = useMemo(() => {
-        return [...categories].sort((a, b) => a.order - b.order);
-    }, [categories]);
+    // 計算包含子類別的腳本數量
+    const getTotalScriptCount = useMemo(() => {
+        const getDescendantIds = (categoryId: string): string[] => {
+            const children = categories.filter(c => c.parentId === categoryId);
+            let ids: string[] = [];
+            for (const child of children) {
+                ids.push(child.id);
+                ids.push(...getDescendantIds(child.id));
+            }
+            return ids;
+        };
+
+        return (categoryId: string): number => {
+            const descendantIds = getDescendantIds(categoryId);
+            const allIds = [categoryId, ...descendantIds];
+            return allIds.reduce((sum, id) => sum + (categoryCounts.counts[id] || 0), 0);
+        };
+    }, [categories, categoryCounts.counts]);
+
+    const categoryTree = useMemo(() => getCategoryTree(), [categories, getCategoryTree]);
 
     if (sidebarCollapsed) {
         return (
@@ -116,11 +137,14 @@ export function Sidebar({ mode }: SidebarProps) {
             <div className="flex-1 overflow-y-auto px-2 py-2">
                 {mode === 'category' ? (
                     <CategoryModeContent
-                        categories={sortedCategories}
+                        categoryTree={categoryTree}
                         categoryCounts={categoryCounts}
+                        getTotalScriptCount={getTotalScriptCount}
                         setSelectedCategory={setSelectedCategory}
                         openCategoryManager={openCategoryManager}
                         openSubscribeModal={openSubscribeModal}
+                        expandedCategoryIds={expandedCategoryIds}
+                        toggleCategoryExpand={toggleCategoryExpand}
                         t={t}
                     />
                 ) : (
@@ -166,20 +190,26 @@ export function Sidebar({ mode }: SidebarProps) {
 // ============================================================================
 
 interface CategoryModeContentProps {
-    categories: import('@/types').Category[];
+    categoryTree: CategoryTreeNode[];
     categoryCounts: { counts: Record<string, number>; uncategorizedCount: number };
+    getTotalScriptCount: (categoryId: string) => number;
     setSelectedCategory: (id: string | null) => void;
     openCategoryManager: () => void;
     openSubscribeModal: () => void;
+    expandedCategoryIds: Set<string>;
+    toggleCategoryExpand: (id: string) => void;
     t: (key: string, options?: Record<string, unknown>) => string;
 }
 
 function CategoryModeContent({
-    categories,
+    categoryTree,
     categoryCounts,
+    getTotalScriptCount,
     setSelectedCategory,
     openCategoryManager,
     openSubscribeModal,
+    expandedCategoryIds,
+    toggleCategoryExpand,
     t,
 }: CategoryModeContentProps) {
     return (
@@ -208,34 +238,19 @@ function CategoryModeContent({
                     </span>
                 </button>
 
-                {/* Categories */}
-                {categories.map((category) => (
-                    <button
-                        key={category.id}
-                        onClick={() => setSelectedCategory(category.id)}
-                        className={cn(
-                            'w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors',
-                            'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-800'
-                        )}
-                    >
-                        <img
-                            src={getCategoryIconSrc(category.icon, category.customIcon)}
-                            alt={category.name}
-                            className="w-4 h-4 flex-shrink-0 object-contain rounded"
-                        />
-                        <span className="flex-1 truncate text-xs flex items-center gap-1">
-                            {category.name}
-                            {category.isSubscription && (
-                                <Link2 className="w-3 h-3 text-primary-500 flex-shrink-0" />
-                            )}
-                        </span>
-                        <span className="text-xs text-gray-400 dark:text-gray-500">
-                            {categoryCounts.counts[category.id] || 0}
-                        </span>
-                    </button>
+                {/* Categories Tree */}
+                {categoryTree.map((node) => (
+                    <CategoryTreeItem
+                        key={node.id}
+                        node={node}
+                        getTotalScriptCount={getTotalScriptCount}
+                        setSelectedCategory={setSelectedCategory}
+                        expandedCategoryIds={expandedCategoryIds}
+                        toggleCategoryExpand={toggleCategoryExpand}
+                    />
                 ))}
 
-                {categories.length === 0 && (
+                {categoryTree.length === 0 && (
                     <p className="text-xs text-gray-400 dark:text-gray-500 px-2 py-1">
                         {t('sidebar.noCategories')}
                     </p>
@@ -266,6 +281,93 @@ function CategoryModeContent({
                 </button>
             </div>
         </>
+    );
+}
+
+// ============================================================================
+// Category Tree Item (遞迴組件)
+// ============================================================================
+
+interface CategoryTreeItemProps {
+    node: CategoryTreeNode;
+    getTotalScriptCount: (categoryId: string) => number;
+    setSelectedCategory: (id: string | null) => void;
+    expandedCategoryIds: Set<string>;
+    toggleCategoryExpand: (id: string) => void;
+}
+
+function CategoryTreeItem({
+    node,
+    getTotalScriptCount,
+    setSelectedCategory,
+    expandedCategoryIds,
+    toggleCategoryExpand,
+}: CategoryTreeItemProps) {
+    const hasChildren = node.children.length > 0;
+    const isExpanded = expandedCategoryIds.has(node.id);
+    const totalCount = getTotalScriptCount(node.id);
+
+    return (
+        <div>
+            <div
+                onClick={() => setSelectedCategory(node.id)}
+                className={cn(
+                    'w-full flex items-center gap-1 py-1.5 rounded text-left text-sm transition-colors cursor-pointer',
+                    'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-800'
+                )}
+                style={{ paddingLeft: `${8 + node.level * 12}px`, paddingRight: '8px' }}
+            >
+                {/* 展開/收合按鈕 */}
+                {hasChildren ? (
+                    <span
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCategoryExpand(node.id);
+                        }}
+                        className="p-0.5 hover:bg-gray-200 dark:hover:bg-dark-600 rounded cursor-pointer"
+                    >
+                        {isExpanded ? (
+                            <ChevronDown className="w-3 h-3 text-gray-400" />
+                        ) : (
+                            <ChevronRight className="w-3 h-3 text-gray-400" />
+                        )}
+                    </span>
+                ) : (
+                    <span className="w-4" /> // 佔位
+                )}
+
+                <img
+                    src={getCategoryIconSrc(node.icon, node.customIcon)}
+                    alt={node.name}
+                    className="w-4 h-4 flex-shrink-0 object-contain rounded"
+                />
+                <span className="flex-1 truncate text-xs flex items-center gap-1">
+                    {node.name}
+                    {node.isSubscription && (
+                        <Link2 className="w-3 h-3 text-primary-500 flex-shrink-0" />
+                    )}
+                </span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                    {totalCount}
+                </span>
+            </div>
+
+            {/* 子類別 */}
+            {hasChildren && isExpanded && (
+                <div className="space-y-0.5">
+                    {node.children.map((child) => (
+                        <CategoryTreeItem
+                            key={child.id}
+                            node={child}
+                            getTotalScriptCount={getTotalScriptCount}
+                            setSelectedCategory={setSelectedCategory}
+                            expandedCategoryIds={expandedCategoryIds}
+                            toggleCategoryExpand={toggleCategoryExpand}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 

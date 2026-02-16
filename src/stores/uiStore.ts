@@ -25,12 +25,27 @@ interface UIState {
     toasts: Toast[];
     closeBehavior: 'ask' | 'minimize' | 'quit';
     customScriptExtensions: string[];
+    startMinimized: boolean;
+
+    // 多選狀態
+    selectedCategoryIds: Set<string>;
+    selectedScriptIds: Set<string>;
 
     setCloseBehavior: (behavior: 'ask' | 'minimize' | 'quit') => void;
     setCustomScriptExtensions: (extensions: string[]) => void;
     addScriptExtension: (ext: string) => void;
     removeScriptExtension: (ext: string) => void;
     resetScriptExtensions: () => void;
+    setStartMinimized: (value: boolean) => void;
+
+    // 多選方法
+    toggleCategorySelection: (id: string, multi?: boolean) => void;
+    toggleScriptSelection: (id: string, multi?: boolean) => void;
+    selectAllCategories: (ids: string[]) => void;
+    selectAllScripts: (ids: string[]) => void;
+    setSelectedCategoryIds: (ids: string[]) => void;
+    setSelectedScriptIds: (ids: string[]) => void;
+    clearSelection: () => void;
 
     setTheme: (theme: Theme) => void;
     setViewMode: (mode: ViewMode) => void;
@@ -85,6 +100,11 @@ export const useUIStore = create<UIState>()(
             toasts: [],
             closeBehavior: 'ask',
             customScriptExtensions: DEFAULT_SCRIPT_EXTENSIONS,
+            startMinimized: true,
+
+            // 多選狀態初始值
+            selectedCategoryIds: new Set<string>(),
+            selectedScriptIds: new Set<string>(),
 
             setCloseBehavior: (behavior) => set({ closeBehavior: behavior }),
             setCustomScriptExtensions: (extensions) => set({ customScriptExtensions: extensions }),
@@ -97,6 +117,38 @@ export const useUIStore = create<UIState>()(
                 customScriptExtensions: state.customScriptExtensions.filter(e => e !== ext)
             })),
             resetScriptExtensions: () => set({ customScriptExtensions: DEFAULT_SCRIPT_EXTENSIONS }),
+            setStartMinimized: (value) => set({ startMinimized: value }),
+
+            // 多選方法
+            toggleCategorySelection: (id, multi = false) => set((state) => {
+                const newSet = new Set(multi ? state.selectedCategoryIds : []);
+                if (newSet.has(id)) {
+                    newSet.delete(id);
+                } else {
+                    newSet.add(id);
+                }
+                return { selectedCategoryIds: newSet, selectedScriptIds: new Set() };
+            }),
+
+            toggleScriptSelection: (id, multi = false) => set((state) => {
+                const newSet = new Set(multi ? state.selectedScriptIds : []);
+                if (newSet.has(id)) {
+                    newSet.delete(id);
+                } else {
+                    newSet.add(id);
+                }
+                return { selectedScriptIds: newSet, selectedCategoryIds: new Set() };
+            }),
+
+            selectAllCategories: (ids) => set({ selectedCategoryIds: new Set(ids), selectedScriptIds: new Set() }),
+
+            selectAllScripts: (ids) => set({ selectedScriptIds: new Set(ids), selectedCategoryIds: new Set() }),
+
+            setSelectedCategoryIds: (ids) => set({ selectedCategoryIds: new Set(ids) }),
+
+            setSelectedScriptIds: (ids) => set({ selectedScriptIds: new Set(ids) }),
+
+            clearSelection: () => set({ selectedCategoryIds: new Set(), selectedScriptIds: new Set() }),
 
             setTheme: (theme) => set({ theme }),
 
@@ -176,6 +228,7 @@ export const useUIStore = create<UIState>()(
                 sidebarCollapsed: state.sidebarCollapsed,
                 closeBehavior: state.closeBehavior,
                 customScriptExtensions: state.customScriptExtensions,
+                startMinimized: state.startMinimized,
             }),
         }
     )

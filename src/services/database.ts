@@ -67,6 +67,9 @@ async function runMigrations(database: Database): Promise<void> {
     if (currentVersion < 2) {
         await migrateV2(database);
     }
+    if (currentVersion < 3) {
+        await migrateV3(database);
+    }
 }
 
 /**
@@ -168,6 +171,22 @@ async function migrateV2(database: Database): Promise<void> {
     );
 }
 
+/**
+ * V3 遷移 - 子資料夾支援
+ */
+async function migrateV3(database: Database): Promise<void> {
+    // 新增 parent_id 欄位
+    await database.execute(`ALTER TABLE categories ADD COLUMN parent_id TEXT`);
+
+    // 建立索引以加速查詢
+    await database.execute(`CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id)`);
+
+    await database.execute(
+        'INSERT INTO _migrations (version, applied_at) VALUES (?, ?)',
+        [3, new Date().toISOString()]
+    );
+}
+
 // ==================== Category CRUD ====================
 
 export interface CategoryRow {
@@ -181,6 +200,7 @@ export interface CategoryRow {
     is_subscription: number;
     source_url: string | null;
     last_synced_at: string | null;
+    parent_id: string | null;
 }
 
 export async function getAllCategories(): Promise<CategoryRow[]> {
@@ -191,10 +211,10 @@ export async function getAllCategories(): Promise<CategoryRow[]> {
 export async function insertCategory(category: CategoryRow): Promise<void> {
     const database = await getDatabase();
     await database.execute(
-        `INSERT INTO categories (id, name, icon, custom_icon, description, "order", created_at, is_subscription, source_url, last_synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO categories (id, name, icon, custom_icon, description, "order", created_at, is_subscription, source_url, last_synced_at, parent_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [category.id, category.name, category.icon, category.custom_icon, category.description,
-        category.order, category.created_at, category.is_subscription, category.source_url, category.last_synced_at]
+        category.order, category.created_at, category.is_subscription, category.source_url, category.last_synced_at, category.parent_id]
     );
 }
 
@@ -484,7 +504,8 @@ export async function syncAllToDatabase(
             created_at: category.createdAt,
             is_subscription: category.isSubscription ? 1 : 0,
             source_url: category.sourceUrl || null,
-            last_synced_at: category.lastSyncedAt || null
+            last_synced_at: category.lastSyncedAt || null,
+            parent_id: category.parentId || null
         };
         await insertCategory(row);
     }

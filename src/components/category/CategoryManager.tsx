@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, Edit2, Upload, Link2, ChevronDown, ChevronUp, FolderOutput, X } from 'lucide-react';
+import { Plus, Trash2, Edit2, Upload, Link2, ChevronDown, ChevronUp, FolderOutput, X, ChevronRight } from 'lucide-react';
 import { useCategoryStore, useScriptStore, useUIStore } from '@/stores';
 import { DEFAULT_ICONS } from '@/types/category';
 import { Button, Modal, ConfirmDialog } from '@/components/ui';
@@ -20,6 +20,7 @@ export function CategoryManager() {
     const addCategory = useCategoryStore((state) => state.addCategory);
     const updateCategory = useCategoryStore((state) => state.updateCategory);
     const deleteCategory = useCategoryStore((state) => state.deleteCategory);
+    const getDescendantIds = useCategoryStore((state) => state.getDescendantIds);
 
     const scripts = useScriptStore((state) => state.scripts);
     const setScripts = useScriptStore((state) => state.setScripts);
@@ -29,6 +30,7 @@ export function CategoryManager() {
     const [selectedIcon, setSelectedIcon] = useState('app_logo');
     const [customIcon, setCustomIcon] = useState<string | undefined>();
     const [description, setDescription] = useState('');
+    const [parentId, setParentId] = useState<string | null>(null);
     const [showCategoryList, setShowCategoryList] = useState(true);
 
     // 自訂圖標庫
@@ -43,6 +45,30 @@ export function CategoryManager() {
             console.error('Failed to load custom icons:', e);
         }
     }, []);
+
+    // 計算可選的父類別（排除自己和子孫，防止循環引用）
+    const availableParentOptions = useMemo(() => {
+        if (!editingId) {
+            // 新增模式：所有類別都可選
+            return categories;
+        }
+        // 編輯模式：排除自己和所有子孫
+        const excludeIds = new Set([editingId, ...getDescendantIds(editingId)]);
+        return categories.filter(cat => !excludeIds.has(cat.id));
+    }, [categories, editingId, getDescendantIds]);
+
+    // 獲取類別的完整路徑名稱
+    const getCategoryPath = useCallback((categoryId: string): string => {
+        const paths: string[] = [];
+        let currentId: string | null | undefined = categoryId;
+        while (currentId) {
+            const cat = categories.find(c => c.id === currentId);
+            if (!cat) break;
+            paths.unshift(cat.name);
+            currentId = cat.parentId;
+        }
+        return paths.join(' / ');
+    }, [categories]);
 
     useEffect(() => {
         if (isCategoryManagerOpen) {
@@ -76,6 +102,7 @@ export function CategoryManager() {
         setSelectedIcon('app_logo');
         setCustomIcon(undefined);
         setDescription('');
+        setParentId(null);
     };
 
     const handleEdit = (category: typeof categories[0]) => {
@@ -84,6 +111,7 @@ export function CategoryManager() {
         setSelectedIcon(category.icon);
         setCustomIcon(category.customIcon);
         setDescription(category.description || '');
+        setParentId(category.parentId || null);
     };
 
     const handleSave = async () => {
@@ -99,6 +127,7 @@ export function CategoryManager() {
                     icon: selectedIcon,
                     customIcon,
                     description: description.trim() || undefined,
+                    parentId,
                 });
                 addToast({ type: 'success', message: t('category.manager.updateSuccess') });
             } else {
@@ -107,7 +136,7 @@ export function CategoryManager() {
                     icon: selectedIcon,
                     customIcon,
                     description: description.trim() || undefined,
-                });
+                }, parentId);
                 addToast({ type: 'success', message: t('category.manager.createSuccess') });
             }
             resetForm();
@@ -263,16 +292,34 @@ export function CategoryManager() {
                             </div>
                             <div>
                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                                    {t('category.manager.descLabel')}
+                                    {t('category.manager.parentLabel')}
                                 </label>
-                                <input
-                                    type="text"
-                                    value={description}
-                                    onChange={(e) => setDescription(e.target.value)}
-                                    placeholder={t('category.manager.descPlaceholder')}
+                                <select
+                                    value={parentId || ''}
+                                    onChange={(e) => setParentId(e.target.value || null)}
                                     className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                />
+                                >
+                                    <option value="">{t('category.manager.noParent')}</option>
+                                    {availableParentOptions.map((cat) => (
+                                        <option key={cat.id} value={cat.id}>
+                                            {getCategoryPath(cat.id)}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                {t('category.manager.descLabel')}
+                            </label>
+                            <input
+                                type="text"
+                                value={description}
+                                onChange={(e) => setDescription(e.target.value)}
+                                placeholder={t('category.manager.descPlaceholder')}
+                                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            />
                         </div>
 
                         {/* 訂閱類別顯示 GitHub URL */}
@@ -427,54 +474,71 @@ export function CategoryManager() {
                                         {t('category.manager.noCategories')}
                                     </p>
                                 ) : (
-                                    categories.map((cat) => (
-                                        <div
-                                            key={cat.id}
-                                            className={cn(
-                                                "flex items-center gap-2 p-2 rounded-lg transition-colors",
-                                                editingId === cat.id
-                                                    ? "bg-primary-50 dark:bg-primary-900/20"
-                                                    : "hover:bg-gray-50 dark:hover:bg-dark-700"
-                                            )}
-                                        >
-                                            <img
-                                                src={getCategoryIconSrc(cat.icon, cat.customIcon)}
-                                                alt={cat.name}
-                                                className="w-8 h-8 object-contain rounded"
-                                            />
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex items-center gap-1">
-                                                    {cat.name}
-                                                    {cat.isSubscription && (
-                                                        <Link2 className="w-3 h-3 text-primary-500" />
+                                    categories
+                                        .sort((a, b) => a.order - b.order)
+                                        .map((cat) => {
+                                            // 計算層級深度
+                                            let depth = 0;
+                                            let currentParentId = cat.parentId;
+                                            while (currentParentId) {
+                                                depth++;
+                                                const parent = categories.find(c => c.id === currentParentId);
+                                                currentParentId = parent?.parentId;
+                                            }
+
+                                            return (
+                                                <div
+                                                    key={cat.id}
+                                                    className={cn(
+                                                        "flex items-center gap-2 p-2 rounded-lg transition-colors",
+                                                        editingId === cat.id
+                                                            ? "bg-primary-50 dark:bg-primary-900/20"
+                                                            : "hover:bg-gray-50 dark:hover:bg-dark-700"
                                                     )}
-                                                </p>
-                                            </div>
-                                            <div className="flex items-center gap-0.5">
-                                                <button
-                                                    onClick={() => handleExportClick(cat)}
-                                                    className="p-1.5 text-gray-400 hover:text-green-500 rounded"
-                                                    title={t('category.manager.exportFolder')}
+                                                    style={{ paddingLeft: `${8 + depth * 16}px` }}
                                                 >
-                                                    <FolderOutput className="w-3.5 h-3.5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleEdit(cat)}
-                                                    className="p-1.5 text-gray-400 hover:text-primary-500 rounded"
-                                                    title={t('common.edit')}
-                                                >
-                                                    <Edit2 className="w-3.5 h-3.5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteClick(cat)}
-                                                    className="p-1.5 text-gray-400 hover:text-red-500 rounded"
-                                                    title={t('common.delete')}
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))
+                                                    {depth > 0 && (
+                                                        <ChevronRight className="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
+                                                    )}
+                                                    <img
+                                                        src={getCategoryIconSrc(cat.icon, cat.customIcon)}
+                                                        alt={cat.name}
+                                                        className="w-8 h-8 object-contain rounded"
+                                                    />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex items-center gap-1">
+                                                            {cat.name}
+                                                            {cat.isSubscription && (
+                                                                <Link2 className="w-3 h-3 text-primary-500" />
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex items-center gap-0.5">
+                                                        <button
+                                                            onClick={() => handleExportClick(cat)}
+                                                            className="p-1.5 text-gray-400 hover:text-green-500 rounded"
+                                                            title={t('category.manager.exportFolder')}
+                                                        >
+                                                            <FolderOutput className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleEdit(cat)}
+                                                            className="p-1.5 text-gray-400 hover:text-primary-500 rounded"
+                                                            title={t('common.edit')}
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteClick(cat)}
+                                                            className="p-1.5 text-gray-400 hover:text-red-500 rounded"
+                                                            title={t('common.delete')}
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
                                 )}
                             </div>
                         )}

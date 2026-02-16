@@ -6,6 +6,102 @@ import type { CategoryExport, UnifiedImportResult, UnifiedManifest } from '@/typ
 import { insertCustomIcon, type CustomIconRow } from './database';
 
 /**
+ * 遞迴導入類別及其子類別
+ */
+async function importCategoryRecursive(
+    categoryPath: string,
+    parentId: string | null,
+    result: UnifiedImportResult
+): Promise<void> {
+    const categoryJsonPath = `${categoryPath}/category.json`;
+
+    let categoryContent: string;
+    try {
+        categoryContent = await readTextFile(categoryJsonPath);
+    } catch {
+        return; // 沒有 category.json，跳過
+    }
+
+    const categoryExport = JSON.parse(categoryContent) as CategoryExport;
+
+    // 讀取自定義圖標 (如果有)
+    let customIcon: string | undefined;
+    if (categoryExport.customIcon === 'icon.png') {
+        try {
+            const iconPath = `${categoryPath}/icon.png`;
+            const iconBytes = await readFile(iconPath);
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(iconBytes)));
+            customIcon = `data:image/png;base64,${base64}`;
+        } catch {
+            console.warn(`Failed to read icon for ${categoryExport.name}`);
+        }
+    }
+
+    // 建立類別
+    const category: Category = {
+        id: categoryExport.id,
+        name: categoryExport.name,
+        description: categoryExport.description,
+        icon: categoryExport.icon,
+        customIcon: customIcon,
+        order: categoryExport.order,
+        createdAt: categoryExport.createdAt,
+        isSubscription: categoryExport.isSubscription,
+        sourceUrl: categoryExport.sourceUrl,
+        lastSyncedAt: categoryExport.lastSyncedAt,
+        parentId: parentId  // 使用傳入的 parentId
+    };
+
+    result.categories.push(category);
+
+    // 導入類別中的腳本
+    for (const scriptExport of categoryExport.scripts) {
+        try {
+            const scriptFilePath = `${categoryPath}/${scriptExport.file}`;
+            const scriptContent = await readTextFile(scriptFilePath);
+
+            const script: Script = {
+                id: scriptExport.id,
+                title: scriptExport.title,
+                description: scriptExport.description,
+                platform: scriptExport.platform as Script['platform'],
+                commands: [{
+                    id: crypto.randomUUID(),
+                    order: 0,
+                    content: scriptContent,
+                    description: scriptExport.file
+                }],
+                variables: scriptExport.variables,
+                tags: scriptExport.tags,
+                categoryId: categoryExport.id,
+                order: scriptExport.order,
+                createdAt: scriptExport.createdAt,
+                updatedAt: scriptExport.updatedAt,
+                isFavorite: scriptExport.isFavorite
+            };
+
+            result.scripts.push(script);
+        } catch (e) {
+            console.warn(`Failed to import script ${scriptExport.title}:`, e);
+        }
+    }
+
+    // 遞迴處理子目錄
+    try {
+        const subDirs = await readDir(categoryPath);
+        for (const dir of subDirs) {
+            if (!dir.isDirectory) continue;
+            if (dir.name === 'scripts') continue; // 跳過 scripts 目錄
+
+            const subCategoryPath = `${categoryPath}/${dir.name}`;
+            await importCategoryRecursive(subCategoryPath, category.id, result);
+        }
+    } catch {
+        // 沒有子目錄，忽略
+    }
+}
+
+/**
  * 統一導入 (V2) - 從統一導出格式導入所有資料
  */
 export async function importUnified(): Promise<UnifiedImportResult | null> {
@@ -86,7 +182,7 @@ export async function importUnified(): Promise<UnifiedImportResult | null> {
         console.warn('No custom icons found');
     }
 
-    // 導入類別
+    // 導入類別（使用遞迴方式處理子目錄）
     const categoriesPath = `${basePath}/categories`;
     try {
         const categoryDirs = await readDir(categoriesPath);
@@ -95,76 +191,7 @@ export async function importUnified(): Promise<UnifiedImportResult | null> {
             if (!dir.isDirectory) continue;
 
             const categoryPath = `${categoriesPath}/${dir.name}`;
-            const categoryJsonPath = `${categoryPath}/category.json`;
-
-            try {
-                const categoryContent = await readTextFile(categoryJsonPath);
-                const categoryExport = JSON.parse(categoryContent) as CategoryExport;
-
-                // 讀取自定義圖標 (如果有)
-                let customIcon: string | undefined;
-                if (categoryExport.customIcon === 'icon.png') {
-                    try {
-                        const iconPath = `${categoryPath}/icon.png`;
-                        const iconBytes = await readFile(iconPath);
-                        // 將 bytes 轉換為 base64
-                        const base64 = btoa(String.fromCharCode(...new Uint8Array(iconBytes)));
-                        customIcon = `data:image/png;base64,${base64}`;
-                    } catch {
-                        console.warn(`Failed to read icon for ${categoryExport.name}`);
-                    }
-                }
-
-                // 建立類別
-                const category: Category = {
-                    id: categoryExport.id,
-                    name: categoryExport.name,
-                    description: categoryExport.description,
-                    icon: categoryExport.icon,
-                    customIcon: customIcon,
-                    order: categoryExport.order,
-                    createdAt: categoryExport.createdAt,
-                    isSubscription: categoryExport.isSubscription,
-                    sourceUrl: categoryExport.sourceUrl,
-                    lastSyncedAt: categoryExport.lastSyncedAt
-                };
-
-                result.categories.push(category);
-
-                // 導入類別中的腳本
-                for (const scriptExport of categoryExport.scripts) {
-                    try {
-                        const scriptFilePath = `${categoryPath}/${scriptExport.file}`;
-                        const scriptContent = await readTextFile(scriptFilePath);
-
-                        const script: Script = {
-                            id: scriptExport.id,
-                            title: scriptExport.title,
-                            description: scriptExport.description,
-                            platform: scriptExport.platform as Script['platform'],
-                            commands: [{
-                                id: crypto.randomUUID(),
-                                order: 0,
-                                content: scriptContent,
-                                description: scriptExport.file
-                            }],
-                            variables: scriptExport.variables,
-                            tags: scriptExport.tags,
-                            categoryId: categoryExport.id,
-                            order: scriptExport.order,
-                            createdAt: scriptExport.createdAt,
-                            updatedAt: scriptExport.updatedAt,
-                            isFavorite: scriptExport.isFavorite
-                        };
-
-                        result.scripts.push(script);
-                    } catch (e) {
-                        console.warn(`Failed to import script ${scriptExport.title}:`, e);
-                    }
-                }
-            } catch (e) {
-                console.warn(`Failed to read category ${dir.name}:`, e);
-            }
+            await importCategoryRecursive(categoryPath, null, result);
         }
     } catch {
         console.warn('No categories folder found');

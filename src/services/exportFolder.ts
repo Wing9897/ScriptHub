@@ -6,6 +6,106 @@ import i18n from '@/i18n';
 import { getScriptExtension, sanitizeFilename, scriptToFileContent } from '@/utils/files';
 import { getAllCustomIcons } from './database';
 
+/**
+ * 遞迴導出類別及其子類別
+ */
+async function exportCategoryRecursive(
+    category: Category,
+    allCategories: Category[],
+    scripts: Script[],
+    basePath: string
+): Promise<CategoryExport> {
+    const categoryScripts = scripts.filter(s => s.categoryId === category.id);
+    const categoryFolderName = sanitizeFilename(category.name);
+    const categoryPath = `${basePath}/${categoryFolderName}`;
+    const scriptsPath = `${categoryPath}/scripts`;
+
+    await mkdir(categoryPath, { recursive: true });
+    await mkdir(scriptsPath, { recursive: true });
+
+    // 導出自定義圖標 (如果有)
+    let iconFilename: string | null = null;
+    if (category.customIcon) {
+        try {
+            const base64Data = category.customIcon.split(',')[1];
+            if (base64Data) {
+                const binaryString = atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                await writeFile(`${categoryPath}/icon.png`, bytes);
+                iconFilename = 'icon.png';
+            }
+        } catch (e) {
+            console.warn('Failed to export icon:', e);
+        }
+    }
+
+    // 準備腳本導出列表
+    const scriptExports: ScriptExport[] = [];
+
+    for (const script of categoryScripts) {
+        const extension = getScriptExtension(script.platform);
+        const filename = `${sanitizeFilename(script.title)}${extension}`;
+        const filePath = `scripts/${filename}`;
+        const fullPath = `${categoryPath}/${filePath}`;
+
+        // 寫入腳本內容
+        const content = scriptToFileContent(script);
+        await writeTextFile(fullPath, content);
+
+        // 添加到腳本導出列表
+        scriptExports.push({
+            id: script.id,
+            title: script.title,
+            description: script.description,
+            file: filePath,
+            platform: script.platform,
+            tags: script.tags,
+            variables: script.variables,
+            isFavorite: script.isFavorite,
+            order: script.order,
+            createdAt: script.createdAt,
+            updatedAt: script.updatedAt
+        });
+    }
+
+    // 遞迴處理子類別
+    const childCategories = allCategories.filter(c => c.parentId === category.id);
+    const subcategoryExports: CategoryExport[] = [];
+
+    for (const child of childCategories) {
+        const childExport = await exportCategoryRecursive(child, allCategories, scripts, categoryPath);
+        subcategoryExports.push(childExport);
+    }
+
+    // 準備類別導出 metadata
+    const categoryExport: CategoryExport = {
+        id: category.id,
+        name: category.name,
+        description: category.description,
+        icon: category.icon,
+        customIcon: iconFilename, // 使用檔案名稱而非 base64
+        order: category.order,
+        createdAt: category.createdAt,
+        isSubscription: category.isSubscription,
+        sourceUrl: category.sourceUrl,
+        lastSyncedAt: category.lastSyncedAt,
+        parentId: category.parentId,
+        scripts: scriptExports,
+        subcategories: subcategoryExports.length > 0 ? subcategoryExports : undefined
+    };
+
+    // 寫入類別 metadata
+    await writeTextFile(
+        `${categoryPath}/category.json`,
+        JSON.stringify(categoryExport, null, 2)
+    );
+
+    return categoryExport;
+}
+
 
 /**
  * 統一導出格式 (V2) - 導出所有資料為 Folder 結構，包含完整元數據
@@ -77,84 +177,10 @@ export async function exportUnified(
         console.warn('Failed to export custom icons:', e);
     }
 
-    // 導出每個類別
-    for (const category of categories) {
-        const categoryScripts = scripts.filter(s => s.categoryId === category.id);
-        const categoryFolderName = sanitizeFilename(category.name);
-        const categoryPath = `${categoriesPath}/${categoryFolderName}`;
-        const scriptsPath = `${categoryPath}/scripts`;
-
-        await mkdir(categoryPath, { recursive: true });
-        await mkdir(scriptsPath, { recursive: true });
-
-        // 導出自定義圖標 (如果有)
-        let iconFilename: string | null = null;
-        if (category.customIcon) {
-            try {
-                const base64Data = category.customIcon.split(',')[1];
-                if (base64Data) {
-                    const binaryString = atob(base64Data);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-                    await writeFile(`${categoryPath}/icon.png`, bytes);
-                    iconFilename = 'icon.png';
-                }
-            } catch (e) {
-                console.warn('Failed to export icon:', e);
-            }
-        }
-
-        // 準備腳本導出列表
-        const scriptExports: ScriptExport[] = [];
-
-        for (const script of categoryScripts) {
-            const extension = getScriptExtension(script.platform);
-            const filename = `${sanitizeFilename(script.title)}${extension}`;
-            const filePath = `scripts/${filename}`;
-            const fullPath = `${categoryPath}/${filePath}`;
-
-            // 寫入腳本內容
-            const content = scriptToFileContent(script);
-            await writeTextFile(fullPath, content);
-
-            // 添加到腳本導出列表
-            scriptExports.push({
-                id: script.id,
-                title: script.title,
-                description: script.description,
-                file: filePath,
-                platform: script.platform,
-                tags: script.tags,
-                variables: script.variables,
-                isFavorite: script.isFavorite,
-                order: script.order,
-                createdAt: script.createdAt,
-                updatedAt: script.updatedAt
-            });
-        }
-
-        // 準備類別導出 metadata
-        const categoryExport: CategoryExport = {
-            id: category.id,
-            name: category.name,
-            description: category.description,
-            icon: category.icon,
-            customIcon: iconFilename, // 使用檔案名稱而非 base64
-            order: category.order,
-            createdAt: category.createdAt,
-            isSubscription: category.isSubscription,
-            sourceUrl: category.sourceUrl,
-            lastSyncedAt: category.lastSyncedAt,
-            scripts: scriptExports
-        };
-
-        // 寫入類別 metadata
-        await writeTextFile(
-            `${categoryPath}/category.json`,
-            JSON.stringify(categoryExport, null, 2)
-        );
+    // 只導出根類別（沒有 parentId 的），子類別會遞迴處理
+    const rootCategories = categories.filter(c => !c.parentId);
+    for (const category of rootCategories) {
+        await exportCategoryRecursive(category, categories, scripts, categoriesPath);
     }
 
     // 導出未分類腳本
@@ -230,7 +256,8 @@ Exported: ${new Date().toISOString()}
 │   └── [category-name]/
 │       ├── category.json (metadata + scripts list)
 │       ├── icon.png      (custom icon if any)
-│       └── scripts/      (script files)
+│       ├── scripts/      (script files)
+│       └── [subcategory]/ (nested categories)
 └── uncategorized/       (scripts without category)
 \`\`\`
 

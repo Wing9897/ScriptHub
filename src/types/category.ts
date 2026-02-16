@@ -10,6 +10,14 @@ export interface Category {
     isSubscription?: boolean;     // 是否為訂閱類別
     sourceUrl?: string;           // 來源 URL (GitHub/Gitee)
     lastSyncedAt?: string;        // 最後同步時間
+    // 子資料夾支援
+    parentId?: string | null;     // 父類別 ID
+}
+
+// 樹狀結構節點
+export interface CategoryTreeNode extends Category {
+    children: CategoryTreeNode[];
+    level: number;
 }
 
 export interface NewCategory {

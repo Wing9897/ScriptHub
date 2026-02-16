@@ -39,6 +39,7 @@ export function SubscribeModal({ isOpen, onClose }: SubscribeModalProps) {
     const addToast = useUIStore((state) => state.addToast);
     const addScript = useScriptStore((state) => state.addScript);
     const addSubscription = useCategoryStore((state) => state.addSubscription);
+    const addCategory = useCategoryStore((state) => state.addCategory);
 
     // 當預覽成功時，檢查倉庫大小並全選所有腳本
     useEffect(() => {
@@ -163,23 +164,70 @@ export function SubscribeModal({ isOpen, onClose }: SubscribeModalProps) {
                 message: t('subscription.savingScripts', 'Saving scripts to database...')
             });
 
-            // 建立訂閱類別
-            const category = await addSubscription(
-                preview.repoName,
-                preview.url,
-                'git'
-            );
-
             // 建立選中腳本路徑的 Set（用於過濾 ZIP 內容）
             const selectedPaths = new Set(
                 Array.from(selectedIndices).map(i => preview.scripts[i]?.path).filter(Boolean)
             );
 
+            // 從選中的腳本路徑提取目錄結構
+            const selectedScripts = downloaded.filter(({ script }) => selectedPaths.has(script.path));
+
+            // 收集所有目錄路徑
+            const dirPaths = new Set<string>();
+            for (const { script } of selectedScripts) {
+                const parts = script.path.split('/');
+                // 移除檔案名，只保留目錄路徑
+                parts.pop();
+                // 建立所有層級的目錄路徑
+                for (let i = 1; i <= parts.length; i++) {
+                    dirPaths.add(parts.slice(0, i).join('/'));
+                }
+            }
+
+            // 按層級排序目錄（確保父目錄先創建）
+            const sortedDirs = Array.from(dirPaths).sort((a, b) => {
+                const aDepth = a.split('/').length;
+                const bDepth = b.split('/').length;
+                return aDepth - bDepth;
+            });
+
+            // 創建類別映射：目錄路徑 -> 類別 ID
+            const categoryMap = new Map<string, string>();
+
+            // 建立根訂閱類別
+            const rootCategory = await addSubscription(
+                preview.repoName,
+                preview.url,
+                'github'
+            );
+            categoryMap.set('', rootCategory.id);
+
+            // 為每個子目錄創建類別
+            for (const dirPath of sortedDirs) {
+                const parts = dirPath.split('/');
+                const dirName = parts[parts.length - 1];
+                const parentPath = parts.slice(0, -1).join('/');
+                const parentId = categoryMap.get(parentPath) || rootCategory.id;
+
+                // 創建子類別（不是訂閱，只是普通類別）
+                const subCategory = await addCategory({
+                    name: dirName,
+                    icon: 'folder',
+                }, parentId);
+
+                categoryMap.set(dirPath, subCategory.id);
+            }
+
             // 只匯入選中的腳本
             let importedCount = 0;
-            for (const { script, content } of downloaded) {
-                // 檢查是否在選中列表中
-                if (!selectedPaths.has(script.path)) continue;
+            for (const { script, content } of selectedScripts) {
+                // 獲取腳本所屬的目錄路徑
+                const parts = script.path.split('/');
+                parts.pop(); // 移除檔案名
+                const dirPath = parts.join('/');
+
+                // 找到對應的類別 ID
+                const categoryId = categoryMap.get(dirPath) || rootCategory.id;
 
                 await addScript({
                     title: script.name.replace(/\.(sh|bat|ps1|cmd|bash|psm1)$/i, ''),
@@ -192,7 +240,7 @@ export function SubscribeModal({ isOpen, onClose }: SubscribeModalProps) {
                     }],
                     variables: [],
                     tags: [],
-                    categoryId: category.id
+                    categoryId: categoryId
                 });
                 importedCount++;
             }

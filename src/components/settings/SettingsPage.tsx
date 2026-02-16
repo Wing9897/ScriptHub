@@ -23,6 +23,8 @@ export function SettingsPage() {
     const setTheme = useUIStore((state) => state.setTheme);
     const closeBehavior = useUIStore((state) => state.closeBehavior);
     const setCloseBehavior = useUIStore((state) => state.setCloseBehavior);
+    const startMinimized = useUIStore((state) => state.startMinimized);
+    const setStartMinimized = useUIStore((state) => state.setStartMinimized);
     const closeSettings = useUIStore((state) => state.closeSettings);
 
     const [isExporting, setIsExporting] = useState(false);
@@ -263,6 +265,28 @@ export function SettingsPage() {
                             className={cn(
                                 "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
                                 autoStartEnabled ? 'translate-x-5' : ''
+                            )}
+                        />
+                    </button>
+                </div>
+
+                {/* Start Minimized */}
+                <div className="p-4 bg-white dark:bg-dark-800 rounded-xl border border-gray-200 dark:border-dark-700 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p className="font-medium text-gray-900 dark:text-gray-100">{t('settings.startMinimized')}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{t('settings.startMinimizedDesc')}</p>
+                    </div>
+                    <button
+                        onClick={() => setStartMinimized(!startMinimized)}
+                        className={cn(
+                            "relative w-11 h-6 rounded-full transition-colors",
+                            startMinimized ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
+                        )}
+                    >
+                        <span
+                            className={cn(
+                                "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
+                                startMinimized ? 'translate-x-5' : ''
                             )}
                         />
                     </button>
