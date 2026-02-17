@@ -22,6 +22,20 @@ interface UseBoxSelectionOptions {
     minSelectionSize?: number;
 }
 
+// 緩存的元素位置信息
+interface CachedElementRect {
+    id: string;
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}
+
+interface CachedTarget {
+    rects: CachedElementRect[];
+    initialSelection: Set<string>;
+}
+
 export function useBoxSelection(options: UseBoxSelectionOptions) {
     const {
         containerRef,
@@ -31,10 +45,14 @@ export function useBoxSelection(options: UseBoxSelectionOptions) {
     } = options;
 
     const [selection, setSelection] = useState<BoxSelectionState | null>(null);
-    const initialSelectedRef = useRef<Map<number, Set<string>>>(new Map());
     const startPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const hasMovedRef = useRef(false);
     const justFinishedSelectingRef = useRef(false);
+
+    // 緩存元素位置，避免每次 mousemove 都查詢 DOM
+    const cachedTargetsRef = useRef<CachedTarget[]>([]);
+    const lastSelectionRef = useRef<string[][]>([]);
+    const rafIdRef = useRef<number | null>(null);
 
     const getSelectionBox = useCallback(() => {
         if (!selection) return null;
@@ -47,21 +65,15 @@ export function useBoxSelection(options: UseBoxSelectionOptions) {
         };
     }, [selection]);
 
-    const isElementInBox = useCallback((element: Element, box: { left: number; top: number; width: number; height: number }) => {
-        const rect = element.getBoundingClientRect();
-        const containerRect = containerRef.current?.getBoundingClientRect();
-        if (!containerRect) return false;
-
-        const elementLeft = rect.left - containerRect.left + (containerRef.current?.scrollLeft || 0);
-        const elementTop = rect.top - containerRect.top + (containerRef.current?.scrollTop || 0);
-        const elementRight = elementLeft + rect.width;
-        const elementBottom = elementTop + rect.height;
-
+    // 檢查矩形是否相交
+    const rectsIntersect = useCallback((
+        rect: CachedElementRect,
+        box: { left: number; top: number; width: number; height: number }
+    ) => {
         const boxRight = box.left + box.width;
         const boxBottom = box.top + box.height;
-
-        return !(elementRight < box.left || elementLeft > boxRight || elementBottom < box.top || elementTop > boxBottom);
-    }, [containerRef]);
+        return !(rect.right < box.left || rect.left > boxRight || rect.bottom < box.top || rect.top > boxBottom);
+    }, []);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         if (!enabled) return;
@@ -92,24 +104,46 @@ export function useBoxSelection(options: UseBoxSelectionOptions) {
         }
 
         const rect = container.getBoundingClientRect();
-        const x = e.clientX - rect.left + container.scrollLeft;
-        const y = e.clientY - rect.top + container.scrollTop;
+        const scrollLeft = container.scrollLeft;
+        const scrollTop = container.scrollTop;
+        const x = e.clientX - rect.left + scrollLeft;
+        const y = e.clientY - rect.top + scrollTop;
 
         startPosRef.current = { x, y };
         hasMovedRef.current = false;
         justFinishedSelectingRef.current = false;
 
-        // 保存每個目標的初始選擇
-        const initialMap = new Map<number, Set<string>>();
-        targets.forEach((target, index) => {
-            if (e.ctrlKey || e.metaKey) {
-                initialMap.set(index, new Set(target.currentSelection || []));
-            } else {
-                initialMap.set(index, new Set());
+        // 緩存所有元素的位置 (只在開始框選時計算一次)
+        cachedTargetsRef.current = targets.map((target) => {
+            const items = container.querySelectorAll(target.selector);
+            const rects: CachedElementRect[] = [];
+
+            items.forEach(item => {
+                const id = target.getItemId(item);
+                if (id) {
+                    const itemRect = item.getBoundingClientRect();
+                    rects.push({
+                        id,
+                        left: itemRect.left - rect.left + scrollLeft,
+                        top: itemRect.top - rect.top + scrollTop,
+                        right: itemRect.left - rect.left + scrollLeft + itemRect.width,
+                        bottom: itemRect.top - rect.top + scrollTop + itemRect.height,
+                    });
+                }
+            });
+
+            const initialSelection = (e.ctrlKey || e.metaKey)
+                ? new Set(target.currentSelection || [])
+                : new Set<string>();
+
+            if (!(e.ctrlKey || e.metaKey)) {
                 target.onSelectionChange([]);
             }
+
+            return { rects, initialSelection };
         });
-        initialSelectedRef.current = initialMap;
+
+        lastSelectionRef.current = targets.map(() => []);
 
         setSelection({
             isSelecting: true,
@@ -128,55 +162,71 @@ export function useBoxSelection(options: UseBoxSelectionOptions) {
         const container = containerRef.current;
         if (!container) return;
 
-        const rect = container.getBoundingClientRect();
-        const x = e.clientX - rect.left + container.scrollLeft;
-        const y = e.clientY - rect.top + container.scrollTop;
-
-        setSelection(prev => prev ? { ...prev, currentX: x, currentY: y } : null);
-
-        const startX = startPosRef.current.x;
-        const startY = startPosRef.current.y;
-        const boxWidth = Math.abs(x - startX);
-        const boxHeight = Math.abs(y - startY);
-
-        if (boxWidth < minSelectionSize && boxHeight < minSelectionSize) {
-            return;
+        // 取消之前的 RAF
+        if (rafIdRef.current !== null) {
+            cancelAnimationFrame(rafIdRef.current);
         }
 
-        hasMovedRef.current = true;
+        // 使用 RAF 節流更新
+        rafIdRef.current = requestAnimationFrame(() => {
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left + container.scrollLeft;
+            const y = e.clientY - rect.top + container.scrollTop;
 
-        const box = {
-            left: Math.min(startX, x),
-            top: Math.min(startY, y),
-            width: boxWidth,
-            height: boxHeight,
-        };
+            setSelection(prev => prev ? { ...prev, currentX: x, currentY: y } : null);
 
-        // 更新每個目標的選擇
-        targets.forEach((target, index) => {
-            const items = container.querySelectorAll(target.selector);
-            const initialSet = initialSelectedRef.current.get(index) || new Set();
-            const selectedIds: string[] = [...initialSet];
+            const startX = startPosRef.current.x;
+            const startY = startPosRef.current.y;
+            const boxWidth = Math.abs(x - startX);
+            const boxHeight = Math.abs(y - startY);
 
-            items.forEach(item => {
-                const id = target.getItemId(item);
-                if (id && isElementInBox(item, box) && !selectedIds.includes(id)) {
-                    selectedIds.push(id);
+            if (boxWidth < minSelectionSize && boxHeight < minSelectionSize) {
+                return;
+            }
+
+            hasMovedRef.current = true;
+
+            const box = {
+                left: Math.min(startX, x),
+                top: Math.min(startY, y),
+                width: boxWidth,
+                height: boxHeight,
+            };
+
+            // 使用緩存的位置計算選中項目
+            cachedTargetsRef.current.forEach((cached, index) => {
+                const selectedIds: string[] = [...cached.initialSelection];
+
+                for (const rect of cached.rects) {
+                    if (rectsIntersect(rect, box) && !selectedIds.includes(rect.id)) {
+                        selectedIds.push(rect.id);
+                    }
+                }
+
+                // 只有選擇變化時才觸發回調
+                const lastSelection = lastSelectionRef.current[index];
+                if (selectedIds.length !== lastSelection.length ||
+                    !selectedIds.every((id, i) => lastSelection[i] === id)) {
+                    lastSelectionRef.current[index] = selectedIds;
+                    targets[index].onSelectionChange(selectedIds);
                 }
             });
-
-            target.onSelectionChange(selectedIds);
         });
-    }, [selection?.isSelecting, containerRef, targets, isElementInBox, minSelectionSize]);
+    }, [selection?.isSelecting, containerRef, targets, rectsIntersect, minSelectionSize]);
 
     const handleMouseUp = useCallback(() => {
         if (selection?.isSelecting) {
+            if (rafIdRef.current !== null) {
+                cancelAnimationFrame(rafIdRef.current);
+                rafIdRef.current = null;
+            }
             if (hasMovedRef.current) {
                 justFinishedSelectingRef.current = true;
                 setTimeout(() => {
                     justFinishedSelectingRef.current = false;
                 }, 100);
             }
+            cachedTargetsRef.current = [];
             setSelection(null);
         }
     }, [selection]);
@@ -188,6 +238,9 @@ export function useBoxSelection(options: UseBoxSelectionOptions) {
             return () => {
                 document.removeEventListener('mousemove', handleMouseMove);
                 document.removeEventListener('mouseup', handleMouseUp);
+                if (rafIdRef.current !== null) {
+                    cancelAnimationFrame(rafIdRef.current);
+                }
             };
         }
     }, [selection?.isSelecting, handleMouseMove, handleMouseUp]);

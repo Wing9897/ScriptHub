@@ -96,6 +96,12 @@ export function DropZone({ children }: DropZoneProps) {
         // Ignore internal drag-sort drops (no files involved)
         if (files.length === 0) return;
 
+        // 必須在 category 內才能拖放導入
+        if (!selectedCategoryId) {
+            addToast({ type: 'error', message: t('import.file.selectCategoryFirst') });
+            return;
+        }
+
         const scriptFiles = files.filter((file) => isScriptFile(file.name));
 
         if (scriptFiles.length === 0) {
@@ -120,9 +126,8 @@ export function DropZone({ children }: DropZoneProps) {
                             content: cmd.content,
                             description: cmd.description,
                         })),
-                        variables: [],
                         tags: [],
-                        categoryId: selectedCategoryId === 'uncategorized' ? undefined : (selectedCategoryId ?? undefined),
+                        categoryId: selectedCategoryId,
                     });
                     imported++;
                 }

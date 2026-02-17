@@ -238,7 +238,6 @@ export function SubscribeModal({ isOpen, onClose }: SubscribeModalProps) {
                         content: content,
                         description: script.path
                     }],
-                    variables: [],
                     tags: [],
                     categoryId: categoryId
                 });
@@ -435,7 +434,7 @@ export function SubscribeModal({ isOpen, onClose }: SubscribeModalProps) {
                                 const isSelected = selectedIndices.has(idx);
                                 return (
                                     <div
-                                        key={idx}
+                                        key={script.path}
                                         className={`flex items-center gap-3 px-4 py-2 border-b border-gray-100 dark:border-dark-700 last:border-b-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-800 transition-colors ${isSelected ? '' : 'opacity-50'
                                             }`}
                                         onClick={() => toggleScript(idx)}

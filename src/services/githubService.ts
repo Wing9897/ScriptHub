@@ -5,7 +5,6 @@
  */
 
 import { invoke, isTauri } from '@tauri-apps/api/core';
-// import { fetch } from '@tauri-apps/plugin-http'; // Static import breaks browser dev
 import JSZip from 'jszip';
 import i18n from '@/i18n';
 
@@ -17,7 +16,7 @@ declare global {
 }
 import { useUIStore, DEFAULT_SCRIPT_EXTENSIONS } from '@/stores/uiStore';
 import { detectPlatform } from '@/utils/parseScript';
-import type { GitHubContent, GitTreeItem, ParsedGitHubUrl, ScannedScript, SubscriptionPreview } from '@/types';
+import type { GitTreeItem, ParsedGitHubUrl, ScannedScript, SubscriptionPreview } from '@/types';
 
 // ============================================================================
 // Constants
@@ -25,9 +24,6 @@ import type { GitHubContent, GitTreeItem, ParsedGitHubUrl, ScannedScript, Subscr
 
 // 大型倉庫警告閾值 (50MB)
 export const LARGE_REPO_THRESHOLD_MB = 50;
-
-// 分支回退順序
-// const BRANCH_FALLBACK_ORDER = ['main', 'master', 'develop'];
 
 // ============================================================================
 // Types
@@ -201,17 +197,17 @@ function buildHeaders(): HeadersInit {
 function parseApiError(status: number, rateLimitRemaining?: string | null): string {
     if (status === 403) {
         if (rateLimitRemaining === '0') {
-            return i18n.t('github.error.rateLimit');
+            return i18n.t('import.github.error.rateLimit');
         }
-        return i18n.t('github.error.accessDenied');
+        return i18n.t('import.github.error.accessDenied');
     }
     if (status === 404) {
-        return i18n.t('github.error.notFound');
+        return i18n.t('import.github.error.notFound');
     }
     if (status === 401) {
-        return i18n.t('github.error.invalidToken');
+        return i18n.t('import.github.error.invalidToken');
     }
-    return i18n.t('github.error.generic', { status });
+    return i18n.t('import.github.error.generic', { status });
 }
 
 // detectPlatform 已移至 @/utils/parseScript 統一管理
@@ -223,23 +219,6 @@ function isScriptFile(filename: string): boolean {
     const lower = filename.toLowerCase();
     return getScriptExtensions().some((ext: string) => lower.endsWith(ext));
 }
-
-/**
- * 格式化字節數
- */
-/*
-function formatBytes(bytes: number, decimals = 2) {
-    if (bytes === 0) return '0 Bytes';
-
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-}
-*/
 
 // ============================================================================
 // URL Parsing
@@ -284,35 +263,6 @@ export function parseGitHubUrl(url: string): ParsedGitHubUrl | null {
 // ============================================================================
 // GitHub API Functions
 // ============================================================================
-
-/**
- * 獲取 GitHub 目錄內容
- */
-export async function fetchRepoContents(
-    owner: string,
-    repo: string,
-    path: string = '',
-    branch: string = 'main'
-): Promise<GitHubContent[]> {
-    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
-
-    const fetchFn = await getFetch();
-    const response = await fetchFn(apiUrl, {
-        headers: buildHeaders()
-    });
-
-    if (!response.ok) {
-        if (branch === 'main' && response.status === 404) {
-            return fetchRepoContents(owner, repo, path, 'master');
-        }
-
-        const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
-        throw new Error(parseApiError(response.status, rateLimitRemaining));
-    }
-
-    const data = await response.json();
-    return Array.isArray(data) ? data : [data];
-}
 
 /**
  * 獲取分支的 commit SHA
@@ -407,13 +357,13 @@ export async function getSubscriptionPreview(url: string): Promise<SubscriptionP
     const parsed = parseGitHubUrl(url);
 
     if (!parsed) {
-        throw new Error(i18n.t('github.error.invalidUrl'));
+        throw new Error(i18n.t('import.github.error.invalidUrl'));
     }
 
     const scripts = await scanScriptFiles(parsed.owner, parsed.repo, parsed.path, parsed.branch);
 
     if (scripts.length === 0) {
-        throw new Error(i18n.t('github.error.noScripts'));
+        throw new Error(i18n.t('import.github.error.noScripts'));
     }
 
     return {
@@ -421,31 +371,6 @@ export async function getSubscriptionPreview(url: string): Promise<SubscriptionP
         owner: parsed.owner,
         scripts,
         url
-    };
-}
-
-/**
- * 獲取 API 請求剩餘次數
- */
-export async function getRateLimitInfo(): Promise<{
-    limit: number;
-    remaining: number;
-    reset: Date;
-}> {
-    const fetchFn = await getFetch();
-    const response = await fetchFn('https://api.github.com/rate_limit', {
-        headers: buildHeaders()
-    });
-
-    if (!response.ok) {
-        throw new Error(i18n.t('github.error.rateLimitInfo'));
-    }
-
-    const data = await response.json();
-    return {
-        limit: data.rate.limit,
-        remaining: data.rate.remaining,
-        reset: new Date(data.rate.reset * 1000)
     };
 }
 
@@ -641,7 +566,7 @@ async function downloadRepoAsZip(
                 });
             }
 
-            return await extractScriptsFromZip(buffer, repo, tryBranch, path, onProgress);
+            return await extractScriptsFromZip(buffer, owner, repo, tryBranch, path, onProgress);
 
         } catch (e) {
             console.warn(`Failed to download zip for branch ${tryBranch}:`, e);
@@ -760,6 +685,7 @@ export async function downloadRepoByTree(
  */
 async function extractScriptsFromZip(
     zipData: ArrayBuffer,
+    owner: string,
     repo: string,
     branch: string,
     path: string,
@@ -819,7 +745,7 @@ async function extractScriptsFromZip(
         const content = await file.async('string');
         const relativePath = filename.slice(rootPrefix.length);
         const name = filename.split('/').pop() || '';
-        const downloadUrl = `https://raw.githubusercontent.com/${repo}/${branch}/${relativePath}`;
+        const downloadUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${relativePath}`;
 
         results.push({
             script: {

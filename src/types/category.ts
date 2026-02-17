@@ -64,6 +64,3 @@ export const DEFAULT_ICONS = [
     { id: 'folder', name: 'Folder', file: '' },
     { id: 'code', name: 'Code', file: '' },
 ] as const;
-
-export type DefaultIconId = typeof DEFAULT_ICONS[number]['id'];
-

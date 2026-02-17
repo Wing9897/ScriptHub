@@ -1,11 +1,12 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, FolderOpen, Link2, RefreshCw, Loader2, MoreVertical, Edit2, Trash2, Check } from 'lucide-react';
+import { Plus, Link2, RefreshCw, Loader2, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { useCategoryStore, useScriptStore, useUIStore } from '@/stores';
 import { cn, getCategoryIconSrc } from '@/utils';
+import { getCategoryAndDescendantIds } from '@/utils/categoryUtils';
 import { parseGitHubUrl, downloadRepoWithFallback } from '@/services/githubService';
 import { useDragSort, useKeyboardShortcuts, useBoxSelection } from '@/hooks';
-import { ContextMenu, ConfirmDialog } from '@/components/ui';
+import { ContextMenu, ConfirmDialog, SelectionBox, SelectionCheckmark } from '@/components/ui';
 import type { ContextMenuItem } from '@/components/ui';
 import type { Category } from '@/types';
 
@@ -17,7 +18,8 @@ export function CategoryGrid() {
     const reorderCategories = useCategoryStore((state) => state.reorderCategories);
     const deleteCategory = useCategoryStore((state) => state.deleteCategory);
     const scripts = useScriptStore((state) => state.scripts);
-    const setScripts = useScriptStore((state) => state.setScripts);
+    const deleteScriptsBatch = useScriptStore((state) => state.deleteScriptsBatch);
+    const addScript = useScriptStore((state) => state.addScript);
     const openCategoryManager = useUIStore((state) => state.openCategoryManager);
     const addToast = useUIStore((state) => state.addToast);
     const removeToast = useUIStore((state) => state.removeToast);
@@ -71,27 +73,31 @@ export function CategoryGrid() {
     // 批量刪除
     const handleBatchDelete = async () => {
         const idsToDelete = Array.from(selectedCategoryIds);
-        for (const id of idsToDelete) {
-            const category = categories.find(c => c.id === id);
-            if (category?.isSubscription) {
-                const updatedScripts = scripts.filter(s => s.categoryId !== id);
-                setScripts(updatedScripts);
+
+        try {
+            // 刪除 categories（deleteCategory 內部會處理相關腳本）
+            for (const id of idsToDelete) {
+                await deleteCategory(id);
             }
-            await deleteCategory(id);
+
+            addToast({ type: 'success', message: t('category.manager.batchDeleteSuccess', { count: idsToDelete.length }) });
+        } catch (error) {
+            console.error('Failed to batch delete categories:', error);
+            addToast({ type: 'error', message: t('common.error') });
         }
-        addToast({ type: 'success', message: t('category.manager.batchDeleteSuccess', { count: idsToDelete.length }) });
         clearSelection();
         setBatchDeleteConfirm(false);
     };
 
     const handleDeleteCategory = async (category: Category) => {
-        if (category.isSubscription) {
-            // Also remove scripts
-            const updatedScripts = scripts.filter(s => s.categoryId !== category.id);
-            setScripts(updatedScripts);
+        try {
+            // deleteCategory 內部會處理相關腳本的刪除
+            await deleteCategory(category.id);
+            addToast({ type: 'success', message: t('category.manager.deleteSuccess') });
+        } catch (error) {
+            console.error('Failed to delete category:', error);
+            addToast({ type: 'error', message: t('common.error') });
         }
-        await deleteCategory(category.id);
-        addToast({ type: 'success', message: t('category.manager.deleteSuccess') });
         setDeleteTarget(null);
     };
 
@@ -111,17 +117,14 @@ export function CategoryGrid() {
     // 計算每個類別的腳本數量
     const categoryCounts = useMemo(() => {
         const counts: Record<string, number> = {};
-        let uncategorizedCount = 0;
 
         scripts.forEach((script) => {
             if (script.categoryId) {
                 counts[script.categoryId] = (counts[script.categoryId] || 0) + 1;
-            } else {
-                uncategorizedCount++;
             }
         });
 
-        return { counts, uncategorizedCount };
+        return { counts };
     }, [scripts]);
 
     // 排序類別 - 只顯示根類別（沒有 parentId 的）
@@ -261,28 +264,26 @@ export function CategoryGrid() {
                 parsed.path
             );
 
-            const updatedScripts = scripts.filter(s => s.categoryId !== categoryId);
+            // 刪除該類別的舊腳本（使用批量刪除，會同步到數據庫）
+            const oldScriptIds = scripts.filter(s => s.categoryId === categoryId).map(s => s.id);
+            await deleteScriptsBatch(oldScriptIds);
 
-            const newScripts = downloaded.map(({ script, content }) => ({
-                id: crypto.randomUUID(),
-                title: script.name.replace(/\.(sh|bat|ps1|cmd|bash|psm1)$/i, ''),
-                description: t('subscription.from', { repo: `${parsed.owner}/${parsed.repo}` }),
-                platform: script.platform,
-                commands: [{
-                    id: crypto.randomUUID(),
-                    order: 0,
-                    content: content,
-                    description: script.path
-                }],
-                variables: [] as string[],
-                tags: [] as string[],
-                categoryId: categoryId,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                isFavorite: false
-            }));
+            // 添加新腳本（使用 addScript，會同步到數據庫）
+            for (const { script, content } of downloaded) {
+                await addScript({
+                    title: script.name.replace(/\.(sh|bat|ps1|cmd|bash|psm1)$/i, ''),
+                    description: t('subscription.from', { repo: `${parsed.owner}/${parsed.repo}` }),
+                    platform: script.platform,
+                    commands: [{
+                        order: 0,
+                        content: content,
+                        description: script.path
+                    }],
+                    tags: [],
+                    categoryId: categoryId,
+                });
+            }
 
-            setScripts([...updatedScripts, ...newScripts]);
             updateSubscriptionSync(categoryId);
 
             const currentToasts = useUIStore.getState().toasts;
@@ -305,16 +306,21 @@ export function CategoryGrid() {
         }
     };
 
-    // Delete confirm message
+    // Delete confirm message - 計算包含子類別的腳本總數
+    const getDeleteScriptCount = (categoryId: string): number => {
+        const allCategoryIds = getCategoryAndDescendantIds(categories, categoryId);
+        return scripts.filter(s => s.categoryId && allCategoryIds.has(s.categoryId)).length;
+    };
+
     const deleteConfirmMessage = deleteTarget
         ? deleteTarget.isSubscription
             ? t('category.manager.deleteSubscriptionConfirm', {
                 name: deleteTarget.name,
-                count: scripts.filter(s => s.categoryId === deleteTarget.id).length
+                count: getDeleteScriptCount(deleteTarget.id)
             })
             : t('category.manager.deleteConfirm', {
                 name: deleteTarget.name,
-                count: scripts.filter(s => s.categoryId === deleteTarget.id).length
+                count: getDeleteScriptCount(deleteTarget.id)
             })
         : '';
 
@@ -333,47 +339,15 @@ export function CategoryGrid() {
                 // 空白處右鍵菜單
                 if (e.target === e.currentTarget) {
                     e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, category: null as unknown as Category });
+                    setContextMenu({ x: e.clientX, y: e.clientY, category: null });
                 }
             }}
         >
             {/* 框選視覺效果 */}
-            {selectionBox && (
-                <div
-                    className="absolute border-2 border-primary-500 bg-primary-500/10 pointer-events-none z-50"
-                    style={{
-                        left: selectionBox.left,
-                        top: selectionBox.top,
-                        width: selectionBox.width,
-                        height: selectionBox.height,
-                    }}
-                />
-            )}
+            <SelectionBox box={selectionBox} />
             {/* Grid View */}
             {viewMode === 'grid' && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {/* 未分類 */}
-                    <button
-                        onClick={() => setSelectedCategory('uncategorized')}
-                        className={cn(
-                            "group flex flex-col items-center p-4 rounded-xl border-2 border-dashed",
-                            "border-gray-300 dark:border-dark-600",
-                            "hover:border-primary-400 dark:hover:border-primary-500",
-                            "hover:bg-primary-50 dark:hover:bg-primary-900/10",
-                            "transition-all duration-200"
-                        )}
-                    >
-                        <div className="w-16 h-16 flex items-center justify-center bg-gray-100 dark:bg-dark-700 rounded-xl mb-3 group-hover:bg-primary-100 dark:group-hover:bg-primary-900/30 transition-colors">
-                            <FolderOpen className="w-8 h-8 text-gray-400 dark:text-gray-500 group-hover:text-primary-500" />
-                        </div>
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-primary-600 dark:group-hover:text-primary-400">
-                            {t('category.uncategorized')}
-                        </span>
-                        <span className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                            {t('category.scriptCountSuffix', { count: categoryCounts.uncategorizedCount })}
-                        </span>
-                    </button>
-
                     {/* 類別卡片 */}
                     {filteredCategories.map((category) => (
                         <div
@@ -397,9 +371,7 @@ export function CategoryGrid() {
                         >
                             {/* 選中標記 */}
                             {selectedCategoryIds.has(category.id) && (
-                                <div className="absolute top-2 left-2 z-20 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
-                                    <Check className="w-3 h-3 text-white" />
-                                </div>
+                                <SelectionCheckmark position="top-left" />
                             )}
 
                             <button
@@ -527,20 +499,6 @@ export function CategoryGrid() {
             {/* List View */}
             {viewMode === 'list' && (
                 <div className="space-y-2">
-                    {/* 未分類 */}
-                    <button
-                        onClick={() => setSelectedCategory('uncategorized')}
-                        className="w-full flex items-center gap-4 p-3 rounded-lg border border-gray-200 dark:border-dark-600 hover:border-primary-400 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 transition-all"
-                    >
-                        <div className="w-10 h-10 flex items-center justify-center bg-gray-100 dark:bg-dark-700 rounded-lg">
-                            <FolderOpen className="w-5 h-5 text-gray-400" />
-                        </div>
-                        <div className="flex-1 text-left">
-                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('category.uncategorized')}</p>
-                            <p className="text-xs text-gray-400">{t('category.scriptCountSuffix', { count: categoryCounts.uncategorizedCount })}</p>
-                        </div>
-                    </button>
-
                     {/* 類別列表 */}
                     {filteredCategories.map((category) => (
                         <div
@@ -564,9 +522,7 @@ export function CategoryGrid() {
                         >
                             {/* 選中標記 */}
                             {selectedCategoryIds.has(category.id) && (
-                                <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
-                                    <Check className="w-3 h-3 text-white" />
-                                </div>
+                                <SelectionCheckmark position="left-center" />
                             )}
                             <button
                                 onClick={(e) => handleCategoryClick(e, category.id)}

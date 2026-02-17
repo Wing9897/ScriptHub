@@ -8,6 +8,7 @@ import {
     deleteTag as dbDeleteTag,
     type TagRow
 } from '@/services/database';
+import { useScriptStore } from './scriptStore';
 
 interface TagState {
     tags: Tag[];
@@ -58,8 +59,8 @@ export const useTagStore = create<TagState>()((set, get) => ({
         // 1. 更新 SQLite
         // Tag 表比較簡單，直接更新 name 和 color
         const dbUpdates: { name?: string; color?: string } = {};
-        if (updates.name) dbUpdates.name = updates.name;
-        if (updates.color) dbUpdates.color = updates.color;
+        if (updates.name !== undefined) dbUpdates.name = updates.name;
+        if (updates.color !== undefined) dbUpdates.color = updates.color;
 
         await dbUpdateTag(id, dbUpdates);
 
@@ -72,14 +73,30 @@ export const useTagStore = create<TagState>()((set, get) => ({
     },
 
     deleteTag: async (id) => {
-        // 1. 刪除 SQLite
-        await dbDeleteTag(id);
+        try {
+            // 1. 刪除 SQLite
+            await dbDeleteTag(id);
 
-        // 2. 更新 Store
-        set((state) => ({
-            tags: state.tags.filter((tag) => tag.id !== id),
-            selectedTagIds: state.selectedTagIds.filter((tagId) => tagId !== id),
-        }));
+            // 2. 更新 Store（只有數據庫成功才更新）
+            set((state) => ({
+                tags: state.tags.filter((tag) => tag.id !== id),
+                selectedTagIds: state.selectedTagIds.filter((tagId) => tagId !== id),
+            }));
+
+            // 3. 清理腳本中的 tag 引用（並行更新提升性能）
+            const scriptStore = useScriptStore.getState();
+            const scriptsWithTag = scriptStore.scripts.filter(s => s.tags.includes(id));
+            if (scriptsWithTag.length > 0) {
+                await Promise.all(scriptsWithTag.map(script =>
+                    scriptStore.updateScript(script.id, {
+                        tags: script.tags.filter(tagId => tagId !== id)
+                    })
+                ));
+            }
+        } catch (error) {
+            console.error('Failed to delete tag:', error);
+            throw error;
+        }
     },
 
     toggleTagSelection: (id) => {

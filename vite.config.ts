@@ -12,6 +12,18 @@ export default defineConfig(async () => ({
             "@": path.resolve(__dirname, "./src"),
         },
     },
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    // 分離大型第三方庫
+                    'vendor-react': ['react', 'react-dom'],
+                    'vendor-tauri': ['@tauri-apps/api', '@tauri-apps/plugin-autostart', '@tauri-apps/plugin-clipboard-manager', '@tauri-apps/plugin-dialog', '@tauri-apps/plugin-fs', '@tauri-apps/plugin-http', '@tauri-apps/plugin-sql'],
+                    'vendor-ui': ['lucide-react', 'zustand', 'react-i18next', 'i18next'],
+                },
+            },
+        },
+    },
     clearScreen: false,
     server: {
         port: 1420,

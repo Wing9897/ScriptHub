@@ -98,7 +98,7 @@ export function SettingsPage() {
     const handleFolderExport = async () => {
         try {
             setIsExporting(true);
-            const success = await exportUnified(categories, scripts, tags, []);
+            const success = await exportUnified(categories, scripts, tags);
             if (success) {
                 addToast({ type: 'success', message: t('settings.exportSuccess') });
             }
@@ -131,7 +131,7 @@ export function SettingsPage() {
                     setCategories(capturedResult.categories);
                     setScripts(capturedResult.scripts);
                     setTags(capturedResult.tags);
-                    await syncAllToDatabase(capturedResult.categories, capturedResult.scripts, capturedResult.tags, []);
+                    await syncAllToDatabase(capturedResult.categories, capturedResult.scripts, capturedResult.tags);
                     addToast({ type: 'success', message: t('settings.importSuccess') });
                     closeSettings();
                 }

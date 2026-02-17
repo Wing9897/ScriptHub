@@ -58,9 +58,9 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             className="fixed z-[200] min-w-[140px] bg-white dark:bg-dark-800 rounded-lg shadow-xl border border-gray-200 dark:border-dark-600 py-1 animate-in fade-in zoom-in-95 duration-100"
             style={{ left: x, top: y }}
         >
-            {items.map((item, i) => (
+            {items.map((item) => (
                 <button
-                    key={i}
+                    key={item.label}
                     onClick={() => { onClose(); item.onClick(); }}
                     disabled={item.disabled}
                     className={cn(

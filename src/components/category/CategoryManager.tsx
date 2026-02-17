@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Edit2, Upload, Link2, ChevronDown, ChevronUp, FolderOutput, X, ChevronRight } from 'lucide-react';
 import { useCategoryStore, useScriptStore, useUIStore } from '@/stores';
@@ -13,6 +13,7 @@ export function CategoryManager() {
     const { t } = useTranslation();
     const isCategoryManagerOpen = useUIStore((state) => state.isCategoryManagerOpen);
     const editingCategoryId = useUIStore((state) => state.editingCategoryId);
+    const defaultParentId = useUIStore((state) => state.defaultParentId);
     const closeCategoryManager = useUIStore((state) => state.closeCategoryManager);
     const addToast = useUIStore((state) => state.addToast);
 
@@ -23,7 +24,6 @@ export function CategoryManager() {
     const getDescendantIds = useCategoryStore((state) => state.getDescendantIds);
 
     const scripts = useScriptStore((state) => state.scripts);
-    const setScripts = useScriptStore((state) => state.setScripts);
 
     const [editingId, setEditingId] = useState<string | null>(null);
     const [name, setName] = useState('');
@@ -46,29 +46,23 @@ export function CategoryManager() {
         }
     }, []);
 
-    // 計算可選的父類別（排除自己和子孫，防止循環引用）
-    const availableParentOptions = useMemo(() => {
-        if (!editingId) {
-            // 新增模式：所有類別都可選
-            return categories;
-        }
-        // 編輯模式：排除自己和所有子孫
-        const excludeIds = new Set([editingId, ...getDescendantIds(editingId)]);
-        return categories.filter(cat => !excludeIds.has(cat.id));
-    }, [categories, editingId, getDescendantIds]);
+    const resetForm = useCallback(() => {
+        setEditingId(null);
+        setName('');
+        setSelectedIcon('app_logo');
+        setCustomIcon(undefined);
+        setDescription('');
+        setParentId(null);
+    }, []);
 
-    // 獲取類別的完整路徑名稱
-    const getCategoryPath = useCallback((categoryId: string): string => {
-        const paths: string[] = [];
-        let currentId: string | null | undefined = categoryId;
-        while (currentId) {
-            const cat = categories.find(c => c.id === currentId);
-            if (!cat) break;
-            paths.unshift(cat.name);
-            currentId = cat.parentId;
-        }
-        return paths.join(' / ');
-    }, [categories]);
+    const handleEdit = useCallback((category: Category) => {
+        setEditingId(category.id);
+        setName(category.name);
+        setSelectedIcon(category.icon);
+        setCustomIcon(category.customIcon);
+        setDescription(category.description || '');
+        setParentId(category.parentId || null);
+    }, []);
 
     useEffect(() => {
         if (isCategoryManagerOpen) {
@@ -90,29 +84,14 @@ export function CategoryManager() {
             if (cat) {
                 handleEdit(cat);
             }
+        } else if (isCategoryManagerOpen && defaultParentId !== null) {
+            // 新建子類別模式：設定預設父類別
+            setParentId(defaultParentId);
         }
         if (!isCategoryManagerOpen) {
             resetForm();
         }
-    }, [isCategoryManagerOpen, editingCategoryId]);
-
-    const resetForm = () => {
-        setEditingId(null);
-        setName('');
-        setSelectedIcon('app_logo');
-        setCustomIcon(undefined);
-        setDescription('');
-        setParentId(null);
-    };
-
-    const handleEdit = (category: typeof categories[0]) => {
-        setEditingId(category.id);
-        setName(category.name);
-        setSelectedIcon(category.icon);
-        setCustomIcon(category.customIcon);
-        setDescription(category.description || '');
-        setParentId(category.parentId || null);
-    };
+    }, [isCategoryManagerOpen, editingCategoryId, defaultParentId, categories, handleEdit, resetForm]);
 
     const handleSave = async () => {
         if (!name.trim()) {
@@ -147,7 +126,10 @@ export function CategoryManager() {
     };
 
     const handleDeleteClick = (category: Category) => {
-        const scriptCount = scripts.filter(s => s.categoryId === category.id).length;
+        // 計算包含子類別的腳本總數
+        const descendantIds = getDescendantIds(category.id);
+        const allCategoryIds = new Set([category.id, ...descendantIds]);
+        const scriptCount = scripts.filter(s => s.categoryId && allCategoryIds.has(s.categoryId)).length;
         setDeleteConfirm({
             isOpen: true,
             category,
@@ -159,23 +141,11 @@ export function CategoryManager() {
         if (!deleteConfirm.category) return;
 
         const categoryId = deleteConfirm.category.id;
-        const isSubscription = deleteConfirm.category.isSubscription;
 
         try {
-            if (isSubscription) {
-                // 訂閱類別：連同腳本一起刪除
-                const updatedScripts = scripts.filter(s => s.categoryId !== categoryId);
-                setScripts(updatedScripts);
-                await deleteCategory(categoryId);
-                addToast({
-                    type: 'success',
-                    message: t('category.manager.deleteSuccess')
-                });
-            } else {
-                // 一般類別：只刪除類別，腳本變為未分類
-                await deleteCategory(categoryId);
-                addToast({ type: 'success', message: t('category.manager.deleteSuccess') });
-            }
+            // 刪除類別（會自動刪除子類別和相關腳本）
+            await deleteCategory(categoryId);
+            addToast({ type: 'success', message: t('category.manager.deleteSuccess') });
 
             if (editingId === categoryId) {
                 resetForm();
@@ -199,8 +169,7 @@ export function CategoryManager() {
         try {
             const { exportUnified } = await import('@/services/exportFolder');
             // 使用統一 V2 導出格式，僅包含此類別
-            // 注意：這裡暫時不導出全域 tags/variables 定義，僅導出腳本內容
-            const success = await exportUnified([category], categoryScripts, [], []);
+            const success = await exportUnified([category], categoryScripts, []);
 
             if (success) {
                 addToast({
@@ -277,36 +246,17 @@ export function CategoryManager() {
                             {editingId ? t('category.manager.editTitle') : t('category.manager.createTitle')}
                         </h3>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                                    {t('category.manager.nameLabel')}
-                                </label>
-                                <input
-                                    type="text"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    placeholder={t('category.manager.namePlaceholder')}
-                                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                                    {t('category.manager.parentLabel')}
-                                </label>
-                                <select
-                                    value={parentId || ''}
-                                    onChange={(e) => setParentId(e.target.value || null)}
-                                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                >
-                                    <option value="">{t('category.manager.noParent')}</option>
-                                    {availableParentOptions.map((cat) => (
-                                        <option key={cat.id} value={cat.id}>
-                                            {getCategoryPath(cat.id)}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                        <div>
+                            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                {t('category.manager.nameLabel')}
+                            </label>
+                            <input
+                                type="text"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                placeholder={t('category.manager.namePlaceholder')}
+                                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            />
                         </div>
 
                         <div>

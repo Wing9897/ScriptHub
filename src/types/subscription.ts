@@ -1,14 +1,3 @@
-// GitHub API 回應類型
-export interface GitHubContent {
-    name: string;
-    path: string;
-    type: 'file' | 'dir';
-    sha: string;
-    size: number;
-    download_url: string | null;
-    html_url: string;
-}
-
 // Git Trees API 回應類型
 export interface GitTreeItem {
     path: string;
@@ -41,11 +30,4 @@ export interface SubscriptionPreview {
     owner: string;
     scripts: ScannedScript[];
     url: string;
-}
-
-// 同步差異
-export interface SyncDiff {
-    added: ScannedScript[];
-    removed: string[];  // script titles
-    modified: ScannedScript[];
 }

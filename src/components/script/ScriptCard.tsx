@@ -1,10 +1,7 @@
-import { useState, useCallback } from 'react';
-import { Star, Copy, Terminal, Edit2, Trash2 } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+import { Star, Copy, Terminal } from 'lucide-react';
 import { Script } from '@/types';
-import { useScriptStore, useTagStore, useUIStore } from '@/stores';
 import { cn, PLATFORM_COLORS } from '@/utils';
-import { useCopyScript } from '@/hooks/useCopyScript';
+import { useScriptItemLogic } from '@/hooks';
 import { ContextMenu, ConfirmDialog } from '@/components/ui';
 
 interface ScriptCardProps {
@@ -14,52 +11,26 @@ interface ScriptCardProps {
 }
 
 export function ScriptCard({ script, onSelect, onContextMenu: parentContextMenu }: ScriptCardProps) {
-    const { t } = useTranslation();
-    const setSelectedScript = useScriptStore((state) => state.setSelectedScript);
-    const toggleFavorite = useScriptStore((state) => state.toggleFavorite);
-    const deleteScript = useScriptStore((state) => state.deleteScript);
-    const selectedScriptId = useScriptStore((state) => state.selectedScriptId);
-    const getTagById = useTagStore((state) => state.getTagById);
-    const addToast = useUIStore((state) => state.addToast);
-    const openScriptEditor = useUIStore((state) => state.openScriptEditor);
-    const { copyScript } = useCopyScript();
-
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-    const closeContextMenu = useCallback(() => setContextMenu(null), []);
-
-    const handleContextMenu = (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        // 如果有父級的 contextMenu 處理器，使用它（支持多選右鍵菜單）
-        if (parentContextMenu) {
-            parentContextMenu(e);
-        } else {
-            setContextMenu({ x: e.clientX, y: e.clientY });
-        }
-    };
-
-    const handleDelete = async () => {
-        try {
-            await deleteScript(script.id);
-            addToast({ type: 'success', message: t('script.deleteSuccess') });
-        } catch {
-            addToast({ type: 'error', message: t('common.error') });
-        }
-        setShowDeleteConfirm(false);
-    };
+    const {
+        contextMenu,
+        showDeleteConfirm,
+        selectedScriptId,
+        closeContextMenu,
+        handleContextMenu,
+        handleDelete,
+        handleSelect,
+        handleToggleFavorite,
+        handleCopy,
+        setShowDeleteConfirm,
+        getTagById,
+        contextMenuItems,
+        t,
+    } = useScriptItemLogic({ script, parentContextMenu });
 
     return (
         <>
             <div
-                onClick={(e) => {
-                    if (onSelect) {
-                        onSelect(e, script.id);
-                    } else {
-                        setSelectedScript(script.id);
-                    }
-                }}
+                onClick={(e) => handleSelect(e, onSelect)}
                 onContextMenu={handleContextMenu}
                 className={cn(
                     'group bg-white dark:bg-dark-800 rounded-xl border-2 p-4 cursor-pointer transition-all hover:shadow-lg',
@@ -79,15 +50,7 @@ export function ScriptCard({ script, onSelect, onContextMenu: parentContextMenu 
                         </span>
                     </div>
                     <button
-                        onClick={async (e) => {
-                            e.stopPropagation();
-                            try {
-                                await toggleFavorite(script.id);
-                            } catch (error) {
-                                console.error('Failed to toggle favorite:', error);
-                                addToast({ type: 'error', message: t('common.error') });
-                            }
-                        }}
+                        onClick={handleToggleFavorite}
                         className={cn(
                             'p-1.5 rounded-lg transition-colors',
                             script.isFavorite
@@ -134,10 +97,7 @@ export function ScriptCard({ script, onSelect, onContextMenu: parentContextMenu 
 
                 {/* Quick Copy */}
                 <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        copyScript(script);
-                    }}
+                    onClick={handleCopy}
                     className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-gray-50 dark:bg-dark-700 hover:bg-gray-100 dark:hover:bg-dark-600 rounded-lg text-sm text-gray-600 dark:text-gray-300 transition-colors opacity-0 group-hover:opacity-100"
                 >
                     <Copy className="w-3.5 h-3.5" />
@@ -150,19 +110,7 @@ export function ScriptCard({ script, onSelect, onContextMenu: parentContextMenu 
                 <ContextMenu
                     x={contextMenu.x}
                     y={contextMenu.y}
-                    items={[
-                        {
-                            label: t('common.edit'),
-                            icon: <Edit2 className="w-4 h-4" />,
-                            onClick: () => openScriptEditor(script.id),
-                        },
-                        {
-                            label: t('common.delete'),
-                            icon: <Trash2 className="w-4 h-4" />,
-                            onClick: () => setShowDeleteConfirm(true),
-                            variant: 'danger',
-                        },
-                    ]}
+                    items={contextMenuItems}
                     onClose={closeContextMenu}
                 />
             )}

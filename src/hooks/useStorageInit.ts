@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { initStorage, loadAllData } from '@/services';
-import { useCategoryStore, useScriptStore, useTagStore, useVariableStore, useUIStore } from '@/stores';
+import { useCategoryStore, useScriptStore, useTagStore, useUIStore } from '@/stores';
 
 interface StorageInitStatus {
     isLoading: boolean;
@@ -23,7 +23,6 @@ export function useStorageInit(): StorageInitStatus {
     const setCategories = useCategoryStore((state) => state.setCategories);
     const setScripts = useScriptStore((state) => state.setScripts);
     const setTags = useTagStore((state) => state.setTags);
-    const setVariables = useVariableStore((state) => state.setVariables);
     const addToast = useUIStore((state) => state.addToast);
 
     useEffect(() => {
@@ -46,7 +45,6 @@ export function useStorageInit(): StorageInitStatus {
                     setCategories(data.categories);
                     setScripts(data.scripts);
                     setTags(data.tags);
-                    setVariables(data.variables);
 
 
                 } else if (import.meta.env.DEV) {
@@ -72,7 +70,6 @@ export function useStorageInit(): StorageInitStatus {
                             description: 'A simple test script',
                             platform: 'cross',
                             commands: [{ id: 'c1', order: 0, content: 'echo "Hello World"', description: '' }],
-                            variables: [],
                             tags: ['t1'],
                             categoryId: 'cat1',
                             order: 0,
@@ -83,12 +80,10 @@ export function useStorageInit(): StorageInitStatus {
                     ];
 
                     const mockTags = [{ id: 't1', name: 'Test', color: '#ff0000', createdAt: new Date().toISOString() }];
-                    const mockVars = [{ id: 'v1', name: 'API_KEY', defaultValue: '123456', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }];
 
                     setCategories(mockCategories as any);
                     setScripts(mockScripts as any);
                     setTags(mockTags as any);
-                    setVariables(mockVars as any);
 
                     addToast({ type: 'info', message: 'Browser Mode: Using Mock Data' });
                 } else {
@@ -129,7 +124,7 @@ export function useStorageInit(): StorageInitStatus {
         return () => {
             mounted = false;
         };
-    }, [setCategories, setScripts, setTags, setVariables]);
+    }, [setCategories, setScripts, setTags, addToast]);
 
     return status;
 }

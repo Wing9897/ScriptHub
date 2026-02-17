@@ -13,6 +13,7 @@ src-tauri/gen/
 # IDE
 .vscode/
 .idea/
+.claude/
 
 # Kiro specs (development only)
 .kiro/

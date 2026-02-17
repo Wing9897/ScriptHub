@@ -1,16 +1,30 @@
+import { lazy, Suspense } from 'react';
 import { Sidebar } from './Sidebar';
 import { useTranslation } from 'react-i18next';
 import { TopBar } from './TopBar';
-import { SettingsPage } from '@/components/settings/SettingsPage';
 import { ScriptGrid } from '@/components/script/ScriptGrid';
 import { ScriptDetail } from '@/components/script/ScriptDetail';
-import { ScriptEditor } from '@/components/script/ScriptEditor';
-import { TagManager } from '@/components/tag/TagManager';
 import { DropZone } from '@/components/import/DropZone';
-import { CategoryGrid, CategoryManager } from '@/components/category';
-import { SubscribeModal } from '@/components/subscription/SubscribeModal';
+import { CategoryGrid } from '@/components/category';
 import { ToastContainer } from '@/components/ui';
 import { useUIStore, useScriptStore, useCategoryStore } from '@/stores';
+import { Loader2 } from 'lucide-react';
+
+// 懶加載不常用的組件
+const SettingsPage = lazy(() => import('@/components/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const ScriptEditor = lazy(() => import('@/components/script/ScriptEditor').then(m => ({ default: m.ScriptEditor })));
+const TagManager = lazy(() => import('@/components/tag/TagManager').then(m => ({ default: m.TagManager })));
+const CategoryManager = lazy(() => import('@/components/category/CategoryManager').then(m => ({ default: m.CategoryManager })));
+const SubscribeModal = lazy(() => import('@/components/subscription/SubscribeModal').then(m => ({ default: m.SubscribeModal })));
+
+// 加載中的 fallback
+function LoadingFallback() {
+    return (
+        <div className="flex items-center justify-center h-full w-full">
+            <Loader2 className="w-6 h-6 animate-spin text-primary-500" />
+        </div>
+    );
+}
 
 export function MainLayout() {
     const { t } = useTranslation();
@@ -29,9 +43,7 @@ export function MainLayout() {
     const categories = useCategoryStore((state) => state.categories);
 
     // 獲取當前類別名稱
-    const currentCategoryName = selectedCategoryId === 'uncategorized'
-        ? t('category.uncategorized')
-        : categories.find((c) => c.id === selectedCategoryId)?.name || '';
+    const currentCategoryName = categories.find((c) => c.id === selectedCategoryId)?.name || '';
 
     // 是否在類別視圖（首頁）
     const isInCategoryView = selectedCategoryId === null;
@@ -82,7 +94,9 @@ export function MainLayout() {
                         {/* 內容區域：Settings, Category View, or Script List */}
                         {isSettingsOpen ? (
                             <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-dark-900">
-                                <SettingsPage />
+                                <Suspense fallback={<LoadingFallback />}>
+                                    <SettingsPage />
+                                </Suspense>
                             </div>
                         ) : (
                             <div className="flex-1 overflow-y-auto">
@@ -98,11 +112,12 @@ export function MainLayout() {
 
                 {/* Modals */}
                 {selectedScriptId && <ScriptDetail />}
-                {isScriptEditorOpen && <ScriptEditor />}
-                {isTagManagerOpen && <TagManager />}
-                {isCategoryManagerOpen && <CategoryManager />}
-                {/* SettingsModal removed, replaced by SettingsPage */}
-                <SubscribeModal isOpen={isSubscribeModalOpen} onClose={closeSubscribeModal} />
+                <Suspense fallback={null}>
+                    {isScriptEditorOpen && <ScriptEditor />}
+                    {isTagManagerOpen && <TagManager />}
+                    {isCategoryManagerOpen && <CategoryManager />}
+                    {isSubscribeModalOpen && <SubscribeModal isOpen={isSubscribeModalOpen} onClose={closeSubscribeModal} />}
+                </Suspense>
 
                 {/* Toast Notifications */}
                 <ToastContainer />

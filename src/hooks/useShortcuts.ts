@@ -20,10 +20,6 @@ export function useShortcuts() {
     const isSettingsOpen = useUIStore((state) => state.isSettingsOpen);
     const closeTagManager = useUIStore((state) => state.closeTagManager);
     const isTagManagerOpen = useUIStore((state) => state.isTagManagerOpen);
-    const closeVariableManager = useUIStore((state) => state.closeVariableManager);
-    const isVariableManagerOpen = useUIStore((state) => state.isVariableManagerOpen);
-    const closeFileImporter = useUIStore((state) => state.closeFileImporter);
-    const isFileImporterOpen = useUIStore((state) => state.isFileImporterOpen);
     const setViewMode = useUIStore((state) => state.setViewMode);
 
     const setSelectedScript = useScriptStore((state) => state.setSelectedScript);
@@ -50,12 +46,6 @@ export function useShortcuts() {
                     e.preventDefault();
                 } else if (isTagManagerOpen) {
                     closeTagManager();
-                    e.preventDefault();
-                } else if (isVariableManagerOpen) {
-                    closeVariableManager();
-                    e.preventDefault();
-                } else if (isFileImporterOpen) {
-                    closeFileImporter();
                     e.preventDefault();
                 } else if (selectedScriptId) {
                     setSelectedScript(null);
@@ -117,10 +107,6 @@ export function useShortcuts() {
         isSettingsOpen,
         closeTagManager,
         isTagManagerOpen,
-        closeVariableManager,
-        isVariableManagerOpen,
-        closeFileImporter,
-        isFileImporterOpen,
         setViewMode,
         setSelectedScript,
         selectedScriptId,

@@ -11,12 +11,12 @@ import {
     ChevronRight,
     Clock,
     Link2,
-    FolderOpen,
     Plus,
 } from 'lucide-react';
 import { useUIStore, useTagStore, useScriptStore, useCategoryStore } from '@/stores';
 import { cn } from '@/utils/cn';
 import { getCategoryIconSrc } from '@/utils/categoryIcons';
+import { getDescendantCategoryIds } from '@/utils/categoryUtils';
 import { useTranslation } from 'react-i18next';
 import type { CategoryTreeNode } from '@/types/category';
 
@@ -30,7 +30,6 @@ export function Sidebar({ mode }: SidebarProps) {
     const toggleSidebar = useUIStore((state) => state.toggleSidebar);
     const showOnlyFavorites = useUIStore((state) => state.showOnlyFavorites);
     const toggleShowOnlyFavorites = useUIStore((state) => state.toggleShowOnlyFavorites);
-    const openTagManager = useUIStore((state) => state.openTagManager);
     const openSettings = useUIStore((state) => state.openSettings);
     const openSubscribeModal = useUIStore((state) => state.openSubscribeModal);
     const openCategoryManager = useUIStore((state) => state.openCategoryManager);
@@ -65,31 +64,18 @@ export function Sidebar({ mode }: SidebarProps) {
     // Category mode: compute script counts per category
     const categoryCounts = useMemo(() => {
         const counts: Record<string, number> = {};
-        let uncategorizedCount = 0;
         scripts.forEach((script) => {
             if (script.categoryId) {
                 counts[script.categoryId] = (counts[script.categoryId] || 0) + 1;
-            } else {
-                uncategorizedCount++;
             }
         });
-        return { counts, uncategorizedCount };
+        return { counts };
     }, [scripts]);
 
     // 計算包含子類別的腳本數量
     const getTotalScriptCount = useMemo(() => {
-        const getDescendantIds = (categoryId: string): string[] => {
-            const children = categories.filter(c => c.parentId === categoryId);
-            let ids: string[] = [];
-            for (const child of children) {
-                ids.push(child.id);
-                ids.push(...getDescendantIds(child.id));
-            }
-            return ids;
-        };
-
         return (categoryId: string): number => {
-            const descendantIds = getDescendantIds(categoryId);
+            const descendantIds = getDescendantCategoryIds(categories, categoryId);
             const allIds = [categoryId, ...descendantIds];
             return allIds.reduce((sum, id) => sum + (categoryCounts.counts[id] || 0), 0);
         };
@@ -138,7 +124,6 @@ export function Sidebar({ mode }: SidebarProps) {
                 {mode === 'category' ? (
                     <CategoryModeContent
                         categoryTree={categoryTree}
-                        categoryCounts={categoryCounts}
                         getTotalScriptCount={getTotalScriptCount}
                         setSelectedCategory={setSelectedCategory}
                         openCategoryManager={openCategoryManager}
@@ -162,7 +147,6 @@ export function Sidebar({ mode }: SidebarProps) {
                         setSelectedScript={setSelectedScript}
                         tags={tags}
                         toggleTagSelection={toggleTagSelection}
-                        openTagManager={openTagManager}
                         t={t}
                     />
                 )}
@@ -191,7 +175,6 @@ export function Sidebar({ mode }: SidebarProps) {
 
 interface CategoryModeContentProps {
     categoryTree: CategoryTreeNode[];
-    categoryCounts: { counts: Record<string, number>; uncategorizedCount: number };
     getTotalScriptCount: (categoryId: string) => number;
     setSelectedCategory: (id: string | null) => void;
     openCategoryManager: () => void;
@@ -203,7 +186,6 @@ interface CategoryModeContentProps {
 
 function CategoryModeContent({
     categoryTree,
-    categoryCounts,
     getTotalScriptCount,
     setSelectedCategory,
     openCategoryManager,
@@ -223,21 +205,6 @@ function CategoryModeContent({
 
             {/* Category List */}
             <div className="space-y-0.5 mb-4">
-                {/* Uncategorized */}
-                <button
-                    onClick={() => setSelectedCategory('uncategorized')}
-                    className={cn(
-                        'w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors',
-                        'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-800'
-                    )}
-                >
-                    <FolderOpen className="w-4 h-4 flex-shrink-0 text-gray-400" />
-                    <span className="flex-1 truncate text-xs">{t('sidebar.uncategorized')}</span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500">
-                        {categoryCounts.uncategorizedCount}
-                    </span>
-                </button>
-
                 {/* Categories Tree */}
                 {categoryTree.map((node) => (
                     <CategoryTreeItem
@@ -389,7 +356,6 @@ interface ScriptModeContentProps {
     setSelectedScript: (id: string | null) => void;
     tags: import('@/types').Tag[];
     toggleTagSelection: (id: string) => void;
-    openTagManager: () => void;
     t: (key: string, options?: Record<string, unknown>) => string;
 }
 
@@ -407,7 +373,6 @@ function ScriptModeContent({
     setSelectedScript,
     tags,
     toggleTagSelection,
-    openTagManager,
     t,
 }: ScriptModeContentProps) {
     return (
@@ -480,12 +445,6 @@ function ScriptModeContent({
                     <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         {t('sidebar.tags')}
                     </span>
-                    <button
-                        onClick={openTagManager}
-                        className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded"
-                        title={t('sidebar.manageTags')}
-                    >
-                    </button>
                 </div>
                 <div className="space-y-0.5">
                     {tags.map((tag) => {

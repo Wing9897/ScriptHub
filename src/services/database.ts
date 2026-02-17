@@ -10,6 +10,27 @@ import { homeDir, join } from '@tauri-apps/api/path';
 let db: Database | null = null;
 
 /**
+ * 構建 UPDATE 查詢的 fields 和 values
+ */
+function buildUpdateQuery<T extends Record<string, unknown>>(
+    updates: Partial<T>,
+    excludeKeys: string[] = ['id']
+): { fields: string[]; values: unknown[] } {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    Object.entries(updates).forEach(([key, value]) => {
+        if (!excludeKeys.includes(key)) {
+            const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+            fields.push(`"${dbKey}" = ?`);
+            values.push(value);
+        }
+    });
+
+    return { fields, values };
+}
+
+/**
  * 獲取數據庫路徑
  */
 export async function getDatabasePath(): Promise<string> {
@@ -220,17 +241,7 @@ export async function insertCategory(category: CategoryRow): Promise<void> {
 
 export async function updateCategory(id: string, updates: Partial<CategoryRow>): Promise<void> {
     const database = await getDatabase();
-    const fields: string[] = [];
-    const values: unknown[] = [];
-
-    Object.entries(updates).forEach(([key, value]) => {
-        if (key !== 'id') {
-            // 轉換 camelCase 到 snake_case
-            const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-            fields.push(`"${dbKey}" = ?`);
-            values.push(value);
-        }
-    });
+    const { fields, values } = buildUpdateQuery(updates);
 
     if (fields.length === 0) return;
 
@@ -241,9 +252,20 @@ export async function updateCategory(id: string, updates: Partial<CategoryRow>):
     );
 }
 
-export async function deleteCategory(id: string): Promise<void> {
+export async function deleteCategoriesBatch(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
     const database = await getDatabase();
-    await database.execute('DELETE FROM categories WHERE id = ?', [id]);
+    const placeholders = ids.map(() => '?').join(',');
+    await database.execute(`DELETE FROM categories WHERE id IN (${placeholders})`, ids);
+}
+
+export async function updateCategoriesOrderBatch(updates: { id: string; order: number }[]): Promise<void> {
+    if (updates.length === 0) return;
+    const database = await getDatabase();
+    // 批量更新（tauri-plugin-sql 不支持顯式事務語法）
+    for (const { id, order } of updates) {
+        await database.execute('UPDATE categories SET "order" = ? WHERE id = ?', [order, id]);
+    }
 }
 
 // ==================== Script CRUD ====================
@@ -268,19 +290,6 @@ export async function getAllScripts(): Promise<ScriptRow[]> {
     return database.select<ScriptRow[]>('SELECT * FROM scripts ORDER BY "order" ASC');
 }
 
-export async function getScriptsByCategory(categoryId: string | null): Promise<ScriptRow[]> {
-    const database = await getDatabase();
-    if (categoryId === null) {
-        return database.select<ScriptRow[]>(
-            'SELECT * FROM scripts WHERE category_id IS NULL ORDER BY "order" ASC'
-        );
-    }
-    return database.select<ScriptRow[]>(
-        'SELECT * FROM scripts WHERE category_id = ? ORDER BY "order" ASC',
-        [categoryId]
-    );
-}
-
 export async function insertScript(script: ScriptRow): Promise<void> {
     const database = await getDatabase();
     await database.execute(
@@ -294,16 +303,7 @@ export async function insertScript(script: ScriptRow): Promise<void> {
 
 export async function updateScript(id: string, updates: Partial<ScriptRow>): Promise<void> {
     const database = await getDatabase();
-    const fields: string[] = [];
-    const values: unknown[] = [];
-
-    Object.entries(updates).forEach(([key, value]) => {
-        if (key !== 'id') {
-            const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-            fields.push(`"${dbKey}" = ?`);
-            values.push(value);
-        }
-    });
+    const { fields, values } = buildUpdateQuery(updates);
 
     if (fields.length === 0) return;
 
@@ -323,6 +323,38 @@ export async function updateScript(id: string, updates: Partial<ScriptRow>): Pro
 export async function deleteScript(id: string): Promise<void> {
     const database = await getDatabase();
     await database.execute('DELETE FROM scripts WHERE id = ?', [id]);
+}
+
+/**
+ * 批量刪除腳本 - 性能優化
+ */
+export async function deleteScriptsBatch(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const database = await getDatabase();
+    const placeholders = ids.map(() => '?').join(',');
+    await database.execute(`DELETE FROM scripts WHERE id IN (${placeholders})`, ids);
+}
+
+export async function updateScriptsOrderBatch(updates: { id: string; order: number }[]): Promise<void> {
+    if (updates.length === 0) return;
+    const database = await getDatabase();
+    // 批量更新（tauri-plugin-sql 不支持顯式事務語法）
+    for (const { id, order } of updates) {
+        await database.execute('UPDATE scripts SET "order" = ? WHERE id = ?', [order, id]);
+    }
+}
+
+/**
+ * 批量更新腳本類別 - 性能優化
+ */
+export async function updateScriptsCategoryBatch(ids: string[], categoryId: string | null, updatedAt: string): Promise<void> {
+    if (ids.length === 0) return;
+    const database = await getDatabase();
+    const placeholders = ids.map(() => '?').join(',');
+    await database.execute(
+        `UPDATE scripts SET category_id = ?, updated_at = ? WHERE id IN (${placeholders})`,
+        [categoryId, updatedAt, ...ids]
+    );
 }
 
 // ==================== Tag CRUD ====================
@@ -349,16 +381,7 @@ export async function insertTag(tag: TagRow): Promise<void> {
 
 export async function updateTag(id: string, updates: Partial<TagRow>): Promise<void> {
     const database = await getDatabase();
-    const fields: string[] = [];
-    const values: unknown[] = [];
-
-    Object.entries(updates).forEach(([key, value]) => {
-        if (key !== 'id' && key !== 'created_at') {
-            const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-            fields.push(`"${dbKey}" = ?`);
-            values.push(value);
-        }
-    });
+    const { fields, values } = buildUpdateQuery(updates, ['id', 'created_at']);
 
     if (fields.length === 0) return;
 
@@ -372,62 +395,6 @@ export async function updateTag(id: string, updates: Partial<TagRow>): Promise<v
 export async function deleteTag(id: string): Promise<void> {
     const database = await getDatabase();
     await database.execute('DELETE FROM tags WHERE id = ?', [id]);
-}
-
-// ==================== Variable CRUD ====================
-
-export interface VariableRow {
-    id: string;
-    name: string;
-    default_value: string;
-    description: string | null;
-    created_at: string;
-    updated_at: string;
-}
-
-export async function getAllVariables(): Promise<VariableRow[]> {
-    const database = await getDatabase();
-    return database.select<VariableRow[]>('SELECT * FROM variables ORDER BY name ASC');
-}
-
-export async function insertVariable(variable: VariableRow): Promise<void> {
-    const database = await getDatabase();
-    await database.execute(
-        'INSERT INTO variables (id, name, default_value, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [variable.id, variable.name, variable.default_value, variable.description, variable.created_at, variable.updated_at]
-    );
-}
-
-export async function updateVariable(id: string, updates: Partial<VariableRow>): Promise<void> {
-    const database = await getDatabase();
-    const fields: string[] = [];
-    const values: unknown[] = [];
-
-    Object.entries(updates).forEach(([key, value]) => {
-        if (key !== 'id' && key !== 'created_at') {
-            const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-            fields.push(`"${dbKey}" = ?`);
-            values.push(value);
-        }
-    });
-
-    if (fields.length === 0) return;
-
-    if (!updates.updated_at) {
-        fields.push('updated_at = ?');
-        values.push(new Date().toISOString());
-    }
-
-    values.push(id);
-    await database.execute(
-        `UPDATE variables SET ${fields.join(', ')} WHERE id = ?`,
-        values
-    );
-}
-
-export async function deleteVariable(id: string): Promise<void> {
-    const database = await getDatabase();
-    await database.execute('DELETE FROM variables WHERE id = ?', [id]);
 }
 
 export async function closeDatabase(): Promise<void> {
@@ -470,7 +437,6 @@ export async function deleteCustomIcon(id: string): Promise<void> {
 import type { Category } from '@/types/category';
 import type { Script } from '@/types/script';
 import type { Tag } from '@/types/tag';
-import type { Variable } from '@/types/variable';
 
 /**
  * 清空數據庫並批量導入所有數據
@@ -479,18 +445,14 @@ import type { Variable } from '@/types/variable';
 export async function syncAllToDatabase(
     categories: Category[],
     scripts: Script[],
-    tags: Tag[],
-    variables: Variable[]
+    tags: Tag[]
 ): Promise<void> {
     const database = await getDatabase();
-
-
 
     // 清空現有數據 (順序重要：先刪除依賴表)
     await database.execute('DELETE FROM scripts');
     await database.execute('DELETE FROM categories');
     await database.execute('DELETE FROM tags');
-    await database.execute('DELETE FROM variables');
 
     // 批量插入類別
     for (const category of categories) {
@@ -518,7 +480,7 @@ export async function syncAllToDatabase(
             description: script.description,
             platform: script.platform,
             commands: JSON.stringify(script.commands),
-            variables: JSON.stringify(script.variables),
+            variables: '[]',
             tags: JSON.stringify(script.tags),
             category_id: script.categoryId || null,
             order: script.order || 0,
@@ -539,21 +501,6 @@ export async function syncAllToDatabase(
         };
         await insertTag(row);
     }
-
-    // 批量插入變量
-    for (const variable of variables) {
-        const row: VariableRow = {
-            id: variable.id,
-            name: variable.name,
-            default_value: variable.defaultValue,
-            description: variable.description || null,
-            created_at: variable.createdAt,
-            updated_at: variable.updatedAt
-        };
-        await insertVariable(row);
-    }
-
-
 }
 
 /**
@@ -561,10 +508,8 @@ export async function syncAllToDatabase(
  */
 export async function clearAllData(): Promise<void> {
     const database = await getDatabase();
-
     await database.execute('DELETE FROM scripts');
     await database.execute('DELETE FROM categories');
     await database.execute('DELETE FROM tags');
-    await database.execute('DELETE FROM variables');
     await database.execute('DELETE FROM custom_icons');
 }

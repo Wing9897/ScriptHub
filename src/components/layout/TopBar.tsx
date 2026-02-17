@@ -1,8 +1,11 @@
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, LayoutGrid, List, Plus, Settings, Home, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore, useScriptStore, useCategoryStore } from '@/stores';
 import { Button, ThemeToggle } from '@/components/ui';
 import { cn } from '@/utils';
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 interface TopBarProps {
     mode: 'category' | 'script' | 'settings';
@@ -34,12 +37,31 @@ export function TopBar({ mode, title, onBack }: TopBarProps) {
     const openSettings = useUIStore((state) => state.openSettings);
 
     // Dynamic Search Handler
-    const searchQuery = mode === 'category' ? categorySearchQuery : scriptSearchQuery;
-    const setSearchQuery = mode === 'category' ? setCategorySearchQuery : setScriptSearchQuery;
+    const storeSearchQuery = mode === 'category' ? categorySearchQuery : scriptSearchQuery;
+    const setStoreSearchQuery = mode === 'category' ? setCategorySearchQuery : setScriptSearchQuery;
     const searchPlaceholder = mode === 'category' ? t('topbar.searchCategory') : t('topbar.searchScript');
 
+    // Local state for immediate input feedback
+    const [localSearchQuery, setLocalSearchQuery] = useState(storeSearchQuery);
+
+    // Sync local state when store changes (e.g., when cleared externally)
+    useEffect(() => {
+        setLocalSearchQuery(storeSearchQuery);
+    }, [storeSearchQuery]);
+
+    // Debounce the store update
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (localSearchQuery !== storeSearchQuery) {
+                setStoreSearchQuery(localSearchQuery);
+            }
+        }, SEARCH_DEBOUNCE_MS);
+
+        return () => clearTimeout(timer);
+    }, [localSearchQuery, storeSearchQuery, setStoreSearchQuery]);
+
     // 獲取麵包屑路徑
-    const breadcrumbPath = selectedCategoryId && selectedCategoryId !== 'uncategorized'
+    const breadcrumbPath = selectedCategoryId
         ? getCategoryPath(selectedCategoryId)
         : [];
 
@@ -102,8 +124,8 @@ export function TopBar({ mode, title, onBack }: TopBarProps) {
                     <input
                         type="text"
                         placeholder={searchPlaceholder}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        value={localSearchQuery}
+                        onChange={(e) => setLocalSearchQuery(e.target.value)}
                         data-search-input
                         className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-dark-600 bg-gray-50 dark:bg-dark-900 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
                     />

@@ -8,13 +8,11 @@ import {
     getDatabase,
     getAllCategories,
     getAllScripts,
-    getAllTags,
-    getAllVariables
+    getAllTags
 } from './database';
 import type { Category } from '@/types/category';
 import type { Script, Command } from '@/types/script';
 import type { Tag } from '@/types/tag';
-import type { Variable } from '@/types/variable';
 
 /**
  * 初始化存儲系統
@@ -39,13 +37,11 @@ export async function loadAllData(): Promise<{
     categories: Category[];
     scripts: Script[];
     tags: Tag[];
-    variables: Variable[];
 }> {
-    const [categoryRows, scriptRows, tagRows, variableRows] = await Promise.all([
+    const [categoryRows, scriptRows, tagRows] = await Promise.all([
         getAllCategories(),
         getAllScripts(),
-        getAllTags(),
-        getAllVariables()
+        getAllTags()
     ]);
 
     // 轉換為 Store 格式
@@ -60,7 +56,7 @@ export async function loadAllData(): Promise<{
         isSubscription: row.is_subscription === 1,
         sourceUrl: row.source_url || undefined,
         lastSyncedAt: row.last_synced_at || undefined,
-        parentId: row.parent_id || undefined
+        parentId: row.parent_id || null
     }));
 
     const scripts: Script[] = scriptRows.map(row => ({
@@ -69,7 +65,6 @@ export async function loadAllData(): Promise<{
         description: row.description,
         platform: row.platform as Script['platform'],
         commands: (() => { try { return JSON.parse(row.commands); } catch { return []; } })() as Command[],
-        variables: (() => { try { return JSON.parse(row.variables); } catch { return []; } })() as string[],
         tags: (() => { try { return JSON.parse(row.tags); } catch { return []; } })() as string[],
         categoryId: row.category_id || undefined,
         order: row.order,
@@ -85,14 +80,5 @@ export async function loadAllData(): Promise<{
         createdAt: row.created_at
     }));
 
-    const variables: Variable[] = variableRows.map(row => ({
-        id: row.id,
-        name: row.name,
-        defaultValue: row.default_value,
-        description: row.description || undefined,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
-    }));
-
-    return { categories, scripts, tags, variables };
+    return { categories, scripts, tags };
 }
