@@ -1,11 +1,55 @@
 name: Release
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+    paths:
+      - 'package.json'
+      - 'src-tauri/tauri.conf.json'
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if version tag exists
+        id: check
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists, skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "Tag v$VERSION does not exist, will create release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+  create-tag:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ needs.check-version.outputs.version }}
+          git push origin ${{ needs.check-version.outputs.version }}
+
   build-tauri:
+    needs: [check-version, create-tag]
+    if: needs.check-version.outputs.should_release == 'true'
     permissions:
       contents: write
     strategy:
@@ -47,8 +91,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "ScriptHub ${{ github.ref_name }}"
+          tagName: ${{ needs.check-version.outputs.version }}
+          releaseName: "ScriptHub ${{ needs.check-version.outputs.version }}"
           releaseBody: "See the assets below to download for your platform."
           releaseDraft: false
           prerelease: false
