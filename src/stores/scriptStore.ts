@@ -5,6 +5,9 @@ import {
     insertScript,
     updateScript as dbUpdateScript,
     deleteScript as dbDeleteScript,
+    deleteScriptsBatch as dbDeleteScriptsBatch,
+    updateScriptsOrderBatch,
+    updateScriptsCategoryBatch,
     type ScriptRow
 } from '@/services/database';
 
@@ -20,14 +23,15 @@ interface ScriptState {
     addScript: (script: NewScript) => Promise<Script>;
     updateScript: (id: string, updates: Partial<Omit<Script, 'id' | 'createdAt'>>) => Promise<void>;
     deleteScript: (id: string) => Promise<void>;
+    deleteScriptsBatch: (ids: string[]) => Promise<void>;
     toggleFavorite: (id: string) => Promise<void>;
     setSelectedScript: (id: string | null) => void;
     setSearchQuery: (query: string) => void;
     setPlatformFilter: (filter: 'all' | Script['platform']) => void;
     getFilteredScripts: () => Script[];
     recordUsage: (id: string) => void;
-    getRecentScripts: () => Script[];
     reorderScripts: (categoryId: string | null, orderedIds: string[]) => Promise<void>;
+    moveScriptsBatch: (ids: string[], targetCategoryId: string | null) => Promise<void>;
 }
 
 // Helper: Script -> ScriptRow
@@ -38,7 +42,7 @@ function scriptToRow(script: Script): ScriptRow {
         description: script.description,
         platform: script.platform,
         commands: JSON.stringify(script.commands),
-        variables: JSON.stringify(script.variables),
+        variables: '[]', // 保留欄位但不再使用
         tags: JSON.stringify(script.tags),
         category_id: script.categoryId || null,
         order: script.order || 0,
@@ -90,35 +94,60 @@ export const useScriptStore = create<ScriptState>()((set, get) => ({
         if (updates.description !== undefined) dbUpdates.description = updates.description;
         if (updates.platform !== undefined) dbUpdates.platform = updates.platform;
         if (updates.commands !== undefined) dbUpdates.commands = JSON.stringify(updates.commands);
-        if (updates.variables !== undefined) dbUpdates.variables = JSON.stringify(updates.variables);
         if (updates.tags !== undefined) dbUpdates.tags = JSON.stringify(updates.tags);
         if (updates.categoryId !== undefined) dbUpdates.category_id = updates.categoryId || null;
         if (updates.order !== undefined) dbUpdates.order = updates.order;
         if (updates.isFavorite !== undefined) dbUpdates.is_favorite = updates.isFavorite ? 1 : 0;
         dbUpdates.updated_at = now;
 
-        await dbUpdateScript(id, dbUpdates);
+        try {
+            await dbUpdateScript(id, dbUpdates);
 
-        // 2. 更新 Store
-        set((state) => ({
-            scripts: state.scripts.map((script) =>
-                script.id === id
-                    ? { ...script, ...updates, updatedAt: now }
-                    : script
-            ),
-        }));
+            // 2. 更新 Store（只有數據庫成功才更新）
+            set((state) => ({
+                scripts: state.scripts.map((script) =>
+                    script.id === id
+                        ? { ...script, ...updates, updatedAt: now }
+                        : script
+                ),
+            }));
+        } catch (error) {
+            console.error('Failed to update script:', error);
+            throw error;
+        }
     },
 
     deleteScript: async (id) => {
-        // 1. 刪除 SQLite
-        await dbDeleteScript(id);
+        try {
+            // 1. 刪除 SQLite
+            await dbDeleteScript(id);
 
-        // 2. 更新 Store
+            // 2. 更新 Store（只有數據庫成功才更新）
+            set((state) => ({
+                scripts: state.scripts.filter((script) => script.id !== id),
+                selectedScriptId:
+                    state.selectedScriptId === id ? null : state.selectedScriptId,
+                recentScriptIds: state.recentScriptIds.filter((rid) => rid !== id),
+            }));
+        } catch (error) {
+            console.error('Failed to delete script:', error);
+            throw error;
+        }
+    },
+
+    deleteScriptsBatch: async (ids) => {
+        if (ids.length === 0) return;
+
+        // 1. 批量刪除 SQLite (單次數據庫調用)
+        await dbDeleteScriptsBatch(ids);
+
+        // 2. 批量更新 Store (單次狀態更新)
+        const idSet = new Set(ids);
         set((state) => ({
-            scripts: state.scripts.filter((script) => script.id !== id),
+            scripts: state.scripts.filter((script) => !idSet.has(script.id)),
             selectedScriptId:
-                state.selectedScriptId === id ? null : state.selectedScriptId,
-            recentScriptIds: state.recentScriptIds.filter((rid) => rid !== id),
+                state.selectedScriptId && idSet.has(state.selectedScriptId) ? null : state.selectedScriptId,
+            recentScriptIds: state.recentScriptIds.filter((rid) => !idSet.has(rid)),
         }));
     },
 
@@ -180,13 +209,6 @@ export const useScriptStore = create<ScriptState>()((set, get) => ({
         });
     },
 
-    getRecentScripts: () => {
-        const { scripts, recentScriptIds } = get();
-        return recentScriptIds
-            .map((id) => scripts.find((s) => s.id === id))
-            .filter((s): s is Script => s !== undefined);
-    },
-
     reorderScripts: async (categoryId, orderedIds) => {
         const updates: { id: string; order: number }[] = [];
 
@@ -201,12 +223,34 @@ export const useScriptStore = create<ScriptState>()((set, get) => ({
             return { ...script, order: newOrder };
         });
 
-        // 1. 批量更新 SQLite
-        for (const update of updates) {
-            await dbUpdateScript(update.id, { order: update.order });
-        }
+        // 1. 批量更新 SQLite（使用事務，單次提交）
+        await updateScriptsOrderBatch(updates);
 
         // 2. 更新 Store
         set({ scripts: newScripts });
+    },
+
+    moveScriptsBatch: async (ids, targetCategoryId) => {
+        if (ids.length === 0) return;
+
+        const now = new Date().toISOString();
+
+        try {
+            // 1. 批量更新數據庫（單次 SQL 調用）
+            await updateScriptsCategoryBatch(ids, targetCategoryId, now);
+
+            // 2. 更新 Store
+            const idSet = new Set(ids);
+            set((state) => ({
+                scripts: state.scripts.map((script) =>
+                    idSet.has(script.id)
+                        ? { ...script, categoryId: targetCategoryId || undefined, updatedAt: now }
+                        : script
+                ),
+            }));
+        } catch (error) {
+            console.error('Failed to move scripts:', error);
+            throw error;
+        }
     },
 }));

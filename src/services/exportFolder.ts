@@ -1,6 +1,6 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { mkdir, writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
-import type { Script, Category, Tag, Variable } from '@/types';
+import type { Script, Category, Tag } from '@/types';
 import type { UnifiedManifest, CategoryExport, ScriptExport } from '@/types/transfer';
 import i18n from '@/i18n';
 import { getScriptExtension, sanitizeFilename, scriptToFileContent } from '@/utils/files';
@@ -63,7 +63,6 @@ async function exportCategoryRecursive(
             file: filePath,
             platform: script.platform,
             tags: script.tags,
-            variables: script.variables,
             isFavorite: script.isFavorite,
             order: script.order,
             createdAt: script.createdAt,
@@ -113,8 +112,7 @@ async function exportCategoryRecursive(
 export async function exportUnified(
     categories: Category[],
     scripts: Script[],
-    tags: Tag[],
-    variables: Variable[]
+    tags: Tag[]
 ): Promise<boolean> {
     // 選擇導出目錄
     const selectedPath = await save({
@@ -143,8 +141,7 @@ export async function exportUnified(
         stats: {
             categories: categories.length,
             scripts: scripts.length,
-            tags: tags.length,
-            variables: variables.length
+            tags: tags.length
         }
     };
     await writeTextFile(
@@ -156,12 +153,6 @@ export async function exportUnified(
     await writeTextFile(
         `${globalPath}/tags.json`,
         JSON.stringify(tags, null, 2)
-    );
-
-    // 導出全域變量
-    await writeTextFile(
-        `${globalPath}/variables.json`,
-        JSON.stringify(variables, null, 2)
     );
 
     // 導出自訂圖標庫
@@ -210,7 +201,6 @@ export async function exportUnified(
                 file: filePath,
                 platform: script.platform,
                 tags: script.tags,
-                variables: script.variables,
                 isFavorite: script.isFavorite,
                 order: script.order,
                 createdAt: script.createdAt,
@@ -244,14 +234,12 @@ Exported: ${new Date().toISOString()}
 - Categories: ${categories.length}
 - Scripts: ${scripts.length}
 - Tags: ${tags.length}
-- Variables: ${variables.length}
 
 ## Structure
 \`\`\`
 ├── scripthub.json       (root manifest)
 ├── global/
-│   ├── tags.json        (global tags)
-│   └── variables.json   (global variables)
+│   └── tags.json        (global tags)
 ├── categories/
 │   └── [category-name]/
 │       ├── category.json (metadata + scripts list)

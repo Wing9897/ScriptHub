@@ -4,9 +4,12 @@ import type { Category, NewCategory, CategoryTreeNode } from '@/types/category';
 import {
     insertCategory,
     updateCategory as dbUpdateCategory,
-    deleteCategory as dbDeleteCategory,
+    deleteCategoriesBatch as dbDeleteCategoriesBatch,
+    updateCategoriesOrderBatch,
+    deleteScriptsBatch as dbDeleteScriptsBatch,
     type CategoryRow
 } from '@/services/database';
+import { useScriptStore } from './scriptStore';
 
 interface CategoryState {
     categories: Category[];
@@ -121,51 +124,80 @@ export const useCategoryStore = create<CategoryState>()((set, get) => ({
         if (updates.lastSyncedAt !== undefined) dbUpdates.last_synced_at = updates.lastSyncedAt || null;
         if (updates.parentId !== undefined) dbUpdates.parent_id = updates.parentId || null;
 
-        await dbUpdateCategory(id, dbUpdates);
+        try {
+            await dbUpdateCategory(id, dbUpdates);
 
-        // 2. 更新 Store
-        set((state) => ({
-            categories: state.categories.map((cat) =>
-                cat.id === id ? { ...cat, ...updates } : cat
-            ),
-        }));
+            // 2. 更新 Store（只有數據庫成功才更新）
+            set((state) => ({
+                categories: state.categories.map((cat) =>
+                    cat.id === id ? { ...cat, ...updates } : cat
+                ),
+            }));
+        } catch (error) {
+            console.error('Failed to update category:', error);
+            throw error;
+        }
     },
 
     deleteCategory: async (id) => {
         // 獲取所有子孫 ID，一併刪除
         const descendantIds = get().getDescendantIds(id);
         const idsToDelete = [id, ...descendantIds];
+        const categoryIdSet = new Set(idsToDelete);
 
-        // 1. 刪除 SQLite (子孫會因為 CASCADE 或手動刪除)
-        for (const deleteId of idsToDelete) {
-            await dbDeleteCategory(deleteId);
+        try {
+            // 1. 刪除相關腳本（同步到數據庫和 scriptStore）
+            const scriptStore = useScriptStore.getState();
+            const scriptIdsToDelete = scriptStore.scripts
+                .filter(s => s.categoryId && categoryIdSet.has(s.categoryId))
+                .map(s => s.id);
+            if (scriptIdsToDelete.length > 0) {
+                await dbDeleteScriptsBatch(scriptIdsToDelete);
+                // 更新 scriptStore
+                const idSet = new Set(scriptIdsToDelete);
+                useScriptStore.setState((state) => ({
+                    scripts: state.scripts.filter((s) => !idSet.has(s.id)),
+                    selectedScriptId: state.selectedScriptId && idSet.has(state.selectedScriptId) ? null : state.selectedScriptId,
+                    recentScriptIds: state.recentScriptIds.filter((rid) => !idSet.has(rid)),
+                }));
+            }
+
+            // 2. 批量刪除類別（單次數據庫調用）
+            await dbDeleteCategoriesBatch(idsToDelete);
+
+            // 3. 更新 categoryStore
+            set((state) => ({
+                categories: state.categories.filter((cat) => !idsToDelete.includes(cat.id)),
+                selectedCategoryId:
+                    idsToDelete.includes(state.selectedCategoryId || '') ? null : state.selectedCategoryId,
+                expandedCategoryIds: new Set([...state.expandedCategoryIds].filter(id => !idsToDelete.includes(id))),
+            }));
+        } catch (error) {
+            console.error('Failed to delete category:', error);
+            throw error;
         }
-
-        // 2. 更新 Store
-        set((state) => ({
-            categories: state.categories.filter((cat) => !idsToDelete.includes(cat.id)),
-            selectedCategoryId:
-                idsToDelete.includes(state.selectedCategoryId || '') ? null : state.selectedCategoryId,
-        }));
     },
 
     setSelectedCategory: (id) => set({ selectedCategoryId: id }),
 
     reorderCategories: async (orderedIds) => {
-        const newCategories = orderedIds
-            .map((id, index) => {
-                const cat = get().categories.find((c) => c.id === id);
-                return cat ? { ...cat, order: index } : null;
-            })
-            .filter((c): c is Category => c !== null);
+        const categories = get().categories;
 
-        // 1. 批量更新 SQLite
-        for (const cat of newCategories) {
-            await dbUpdateCategory(cat.id, { order: cat.order });
-        }
+        // 只更新 orderedIds 中的類別順序，保留其他類別不變
+        const updatedCategories = categories.map(cat => {
+            const newOrder = orderedIds.indexOf(cat.id);
+            if (newOrder !== -1) {
+                return { ...cat, order: newOrder };
+            }
+            return cat;
+        });
+
+        // 1. 批量更新 SQLite（使用事務，單次提交）
+        const updates = orderedIds.map((id, index) => ({ id, order: index }));
+        await updateCategoriesOrderBatch(updates);
 
         // 2. 更新 Store
-        set({ categories: newCategories });
+        set({ categories: updatedCategories });
     },
 
     // 訂閱相關方法

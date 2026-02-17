@@ -3,23 +3,128 @@ import { useTranslation } from 'react-i18next';
 import { useScriptStore, useTagStore, useUIStore, useCategoryStore } from '@/stores';
 import { ScriptCard } from './ScriptCard';
 import { ScriptListItem } from './ScriptListItem';
-import { FileText, Plus, GripVertical, ChevronRight, Trash2, Check } from 'lucide-react';
-import { Button, ContextMenu, ConfirmDialog } from '@/components/ui';
+import { FileText, Plus, GripVertical, ChevronRight, Trash2, FolderInput, FolderPlus } from 'lucide-react';
+import { Button, ContextMenu, ConfirmDialog, SelectionBox, SelectionCheckmark, Modal } from '@/components/ui';
 import type { ContextMenuItem } from '@/components/ui';
 import { useDragSort, useKeyboardShortcuts, useBoxSelection } from '@/hooks';
 import { cn, getCategoryIconSrc } from '@/utils';
-import type { Script } from '@/types';
+import { getDescendantCategoryIds } from '@/utils/categoryUtils';
+import type { Script, Category } from '@/types';
+
+// Move to category modal component
+function MoveToModal({
+    isOpen,
+    onClose,
+    selectedScriptIds,
+    onMoveComplete,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    selectedScriptIds: Set<string>;
+    onMoveComplete: () => void;
+}) {
+    const { t } = useTranslation();
+    const categories = useCategoryStore((state) => state.categories);
+    const moveScriptsBatch = useScriptStore((state) => state.moveScriptsBatch);
+    const addToast = useUIStore((state) => state.addToast);
+    const [targetCategoryId, setTargetCategoryId] = useState<string | null>(null);
+
+    // Build category tree for display
+    const rootCategories = useMemo(() => {
+        return categories.filter(c => !c.parentId).sort((a, b) => a.order - b.order);
+    }, [categories]);
+
+    const getChildCategories = useCallback((parentId: string) => {
+        return categories.filter(c => c.parentId === parentId).sort((a, b) => a.order - b.order);
+    }, [categories]);
+
+    const handleMove = async () => {
+        const ids = Array.from(selectedScriptIds);
+        try {
+            await moveScriptsBatch(ids, targetCategoryId);
+            addToast({ type: 'success', message: t('script.moveToSuccess', { count: ids.length }) });
+            onMoveComplete();
+        } catch (error) {
+            console.error('Failed to move scripts:', error);
+            addToast({ type: 'error', message: t('common.error') });
+        }
+    };
+
+    // Recursive category item renderer
+    const renderCategoryItem = (category: Category, depth: number = 0) => {
+        const children = getChildCategories(category.id);
+        return (
+            <div key={category.id}>
+                <button
+                    type="button"
+                    className={cn(
+                        'w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center gap-2',
+                        targetCategoryId === category.id
+                            ? 'bg-primary-500 text-white'
+                            : 'hover:bg-gray-100 dark:hover:bg-dark-700'
+                    )}
+                    style={{ paddingLeft: `${12 + depth * 16}px` }}
+                    onClick={() => setTargetCategoryId(category.id)}
+                >
+                    <img
+                        src={getCategoryIconSrc(category.icon, category.customIcon)}
+                        alt={category.name}
+                        className="w-5 h-5 object-contain"
+                    />
+                    <span className="truncate">{category.name}</span>
+                </button>
+                {children.map(child => renderCategoryItem(child, depth + 1))}
+            </div>
+        );
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={t('script.moveToTitle')}>
+            <div className="space-y-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {t('script.selectTargetCategory')}
+                </p>
+                <div className="max-h-64 overflow-y-auto border rounded-lg dark:border-dark-600 p-2 space-y-1">
+                    {/* Uncategorized option */}
+                    <button
+                        type="button"
+                        className={cn(
+                            'w-full text-left px-3 py-2 rounded-lg transition-colors',
+                            targetCategoryId === null
+                                ? 'bg-primary-500 text-white'
+                                : 'hover:bg-gray-100 dark:hover:bg-dark-700'
+                        )}
+                        onClick={() => setTargetCategoryId(null)}
+                    >
+                        {t('category.uncategorized')}
+                    </button>
+                    {rootCategories.map(cat => renderCategoryItem(cat))}
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="secondary" onClick={onClose}>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button onClick={handleMove}>
+                        {t('common.confirm')}
+                    </Button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
 
 export function ScriptGrid() {
     const { t } = useTranslation();
     const viewMode = useUIStore((state) => state.viewMode);
     const showOnlyFavorites = useUIStore((state) => state.showOnlyFavorites);
     const openScriptEditor = useUIStore((state) => state.openScriptEditor);
+    const openCategoryManager = useUIStore((state) => state.openCategoryManager);
 
     const getFilteredScripts = useScriptStore((state) => state.getFilteredScripts);
     const reorderScripts = useScriptStore((state) => state.reorderScripts);
     const scripts = useScriptStore((state) => state.scripts);
     const deleteScript = useScriptStore((state) => state.deleteScript);
+    const deleteScriptsBatch = useScriptStore((state) => state.deleteScriptsBatch);
     const addToast = useUIStore((state) => state.addToast);
 
     // 多選狀態
@@ -44,17 +149,19 @@ export function ScriptGrid() {
     const setSelectedCategory = useCategoryStore((state) => state.setSelectedCategory);
     const categories = useCategoryStore((state) => state.categories);
     const deleteCategory = useCategoryStore((state) => state.deleteCategory);
+    const reorderCategories = useCategoryStore((state) => state.reorderCategories);
 
     // Context menu state
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; script: Script | null; category?: typeof categories[0] | null } | null>(null);
     const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
     const [batchCategoryDeleteConfirm, setBatchCategoryDeleteConfirm] = useState(false);
+    const [moveToModalOpen, setMoveToModalOpen] = useState(false);
 
     const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
     // 獲取當前類別的子類別
     const childCategories = useMemo(() => {
-        if (selectedCategoryId === 'uncategorized') return [];
+        if (!selectedCategoryId) return [];
         return categories
             .filter(cat => cat.parentId === selectedCategoryId)
             .sort((a, b) => a.order - b.order);
@@ -62,18 +169,8 @@ export function ScriptGrid() {
 
     // 計算子類別的腳本數量（包含所有子孫）
     const getSubcategoryScriptCount = useMemo(() => {
-        const getDescendantIds = (categoryId: string): string[] => {
-            const children = categories.filter(c => c.parentId === categoryId);
-            let ids: string[] = [];
-            for (const child of children) {
-                ids.push(child.id);
-                ids.push(...getDescendantIds(child.id));
-            }
-            return ids;
-        };
-
         return (categoryId: string): number => {
-            const descendantIds = getDescendantIds(categoryId);
+            const descendantIds = getDescendantCategoryIds(categories, categoryId);
             const allIds = [categoryId, ...descendantIds];
             return scripts.filter(s => allIds.includes(s.categoryId || '')).length;
         };
@@ -82,9 +179,7 @@ export function ScriptGrid() {
     let filteredScripts = getFilteredScripts();
 
     // Apply category filter - 只顯示直接屬於當前類別的腳本（不包含子類別的）
-    if (selectedCategoryId === 'uncategorized') {
-        filteredScripts = filteredScripts.filter((script) => !script.categoryId);
-    } else if (selectedCategoryId) {
+    if (selectedCategoryId) {
         filteredScripts = filteredScripts.filter((script) => script.categoryId === selectedCategoryId);
     }
 
@@ -119,14 +214,31 @@ export function ScriptGrid() {
         items: sortedScripts,
         getItemId: (s) => s.id,
         onReorder: (newItems) => {
-            const categoryId = selectedCategoryId === 'uncategorized' ? null : (selectedCategoryId || null);
-            reorderScripts(categoryId, newItems.map(s => s.id));
+            reorderScripts(selectedCategoryId || null, newItems.map(s => s.id));
         },
     });
 
     // Only enable drag when not searching/filtering
     const searchQuery = useScriptStore((state) => state.searchQuery);
     const isDragEnabled = selectedTagIds.length === 0 && !showOnlyFavorites && !searchQuery.trim();
+
+    // 子文件夾拖拽排序 hook
+    const {
+        draggedId: categoryDraggedId,
+        dragOverId: categoryDragOverId,
+        onDragStart: onCategoryDragStart,
+        onDragOver: onCategoryDragOver,
+        onDragEnter: onCategoryDragEnter,
+        onDragLeave: onCategoryDragLeave,
+        onDrop: onCategoryDrop,
+        onDragEnd: onCategoryDragEnd,
+    } = useDragSort<Category>({
+        items: childCategories,
+        getItemId: (c) => c.id,
+        onReorder: (newItems) => {
+            reorderCategories(newItems.map(c => c.id));
+        },
+    });
 
     // 鍵盤快捷鍵
     useKeyboardShortcuts({
@@ -193,10 +305,14 @@ export function ScriptGrid() {
     // 批量刪除腳本
     const handleBatchDelete = async () => {
         const idsToDelete = Array.from(selectedScriptIds);
-        for (const id of idsToDelete) {
-            await deleteScript(id);
+        try {
+            // 使用批量刪除 (單次數據庫調用 + 單次狀態更新)
+            await deleteScriptsBatch(idsToDelete);
+            addToast({ type: 'success', message: t('script.batchDeleteSuccess', { count: idsToDelete.length }) });
+        } catch (error) {
+            console.error('Failed to batch delete scripts:', error);
+            addToast({ type: 'error', message: t('common.error') });
         }
-        addToast({ type: 'success', message: t('script.batchDeleteSuccess', { count: idsToDelete.length }) });
         clearSelection();
         setBatchDeleteConfirm(false);
     };
@@ -204,10 +320,17 @@ export function ScriptGrid() {
     // 批量刪除子文件夾
     const handleBatchCategoryDelete = async () => {
         const idsToDelete = Array.from(selectedCategoryIds);
-        for (const id of idsToDelete) {
-            await deleteCategory(id);
+
+        try {
+            // 刪除 categories（deleteCategory 內部會處理相關腳本）
+            for (const id of idsToDelete) {
+                await deleteCategory(id);
+            }
+            addToast({ type: 'success', message: t('category.manager.batchDeleteSuccess', { count: idsToDelete.length }) });
+        } catch (error) {
+            console.error('Failed to batch delete categories:', error);
+            addToast({ type: 'error', message: t('common.error') });
         }
-        addToast({ type: 'success', message: t('category.manager.batchDeleteSuccess', { count: idsToDelete.length }) });
         clearSelection();
         setBatchCategoryDeleteConfirm(false);
     };
@@ -252,11 +375,24 @@ export function ScriptGrid() {
                 icon: <Plus className="w-4 h-4" />,
                 onClick: () => openScriptEditor(),
             });
+            // 在類別內時，顯示新增子文件夾選項
+            if (selectedCategoryId) {
+                items.push({
+                    label: t('category.new'),
+                    icon: <FolderPlus className="w-4 h-4" />,
+                    onClick: () => openCategoryManager(undefined, selectedCategoryId),
+                });
+            }
             return items;
         }
 
         // 批量刪除選項（多選時）
         if (selectedScriptCount > 1) {
+            items.push({
+                label: t('script.moveTo'),
+                icon: <FolderInput className="w-4 h-4" />,
+                onClick: () => setMoveToModalOpen(true),
+            });
             items.push({
                 label: t('script.batchDelete', { count: selectedScriptCount }),
                 icon: <Trash2 className="w-4 h-4" />,
@@ -270,6 +406,15 @@ export function ScriptGrid() {
             label: t('common.edit'),
             icon: <FileText className="w-4 h-4" />,
             onClick: () => openScriptEditor(script.id),
+        });
+
+        items.push({
+            label: t('script.moveTo'),
+            icon: <FolderInput className="w-4 h-4" />,
+            onClick: () => {
+                toggleScriptSelection(script.id, false);
+                setMoveToModalOpen(true);
+            },
         });
 
         items.push({
@@ -298,10 +443,18 @@ export function ScriptGrid() {
                 <p className="text-gray-500 dark:text-gray-400 mb-4">
                     {t('script.startCreating')}
                 </p>
-                <Button onClick={() => openScriptEditor()}>
-                    <Plus className="w-4 h-4" />
-                    {t('script.create')}
-                </Button>
+                <div className="flex gap-2">
+                    <Button onClick={() => openScriptEditor()}>
+                        <Plus className="w-4 h-4" />
+                        {t('script.create')}
+                    </Button>
+                    {selectedCategoryId && (
+                        <Button variant="secondary" onClick={() => openCategoryManager(undefined, selectedCategoryId)}>
+                            <FolderPlus className="w-4 h-4" />
+                            {t('category.new')}
+                        </Button>
+                    )}
+                </div>
             </div>
         );
     }
@@ -327,22 +480,28 @@ export function ScriptGrid() {
                 }}
             >
                 {/* 框選視覺效果 */}
-                {selectionBox && (
-                    <div
-                        className="absolute border-2 border-primary-500 bg-primary-500/10 pointer-events-none z-50"
-                        style={{
-                            left: selectionBox.left,
-                            top: selectionBox.top,
-                            width: selectionBox.width,
-                            height: selectionBox.height,
-                        }}
-                    />
-                )}
+                <SelectionBox box={selectionBox} />
                 {/* 子類別（文件夾） */}
                 {childCategories.map((category) => (
                     <div
                         key={category.id}
                         data-category-id={category.id}
+                        className={cn(
+                            "w-full flex items-center gap-4 p-3 rounded-lg border transition-all cursor-pointer relative group",
+                            selectedCategoryIds.has(category.id)
+                                ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
+                                : "border-gray-200 dark:border-dark-600 hover:border-primary-400 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10",
+                            isDragEnabled && 'cursor-grab active:cursor-grabbing',
+                            categoryDraggedId === category.id && 'opacity-50',
+                            categoryDragOverId === category.id && 'ring-2 ring-primary-500 ring-offset-2'
+                        )}
+                        draggable={isDragEnabled}
+                        onDragStart={(e) => isDragEnabled && onCategoryDragStart(e, category.id)}
+                        onDragOver={onCategoryDragOver}
+                        onDragEnter={(e) => isDragEnabled && onCategoryDragEnter(e, category.id)}
+                        onDragLeave={onCategoryDragLeave}
+                        onDrop={(e) => isDragEnabled && onCategoryDrop(e, category.id)}
+                        onDragEnd={onCategoryDragEnd}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (e.ctrlKey || e.metaKey) {
@@ -356,18 +515,16 @@ export function ScriptGrid() {
                         }}
                         onMouseDown={(e) => e.stopPropagation()}
                         onContextMenu={(e) => handleCategoryContextMenu(e, category)}
-                        className={cn(
-                            "w-full flex items-center gap-4 p-3 rounded-lg border transition-all cursor-pointer relative",
-                            selectedCategoryIds.has(category.id)
-                                ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
-                                : "border-gray-200 dark:border-dark-600 hover:border-primary-400 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10"
-                        )}
                     >
+                        {/* 拖拽手柄 */}
+                        {isDragEnabled && (
+                            <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-6 p-1 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <GripVertical className="w-4 h-4" />
+                            </div>
+                        )}
                         {/* 選中標記 */}
                         {selectedCategoryIds.has(category.id) && (
-                            <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
-                                <Check className="w-3 h-3 text-white" />
-                            </div>
+                            <SelectionCheckmark position="left-center" />
                         )}
                         <div className={cn(
                             "w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-dark-700 rounded-lg",
@@ -414,9 +571,7 @@ export function ScriptGrid() {
                     >
                         {/* 選中標記 */}
                         {selectedScriptIds.has(script.id) && (
-                            <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
-                                <Check className="w-3 h-3 text-white" />
-                            </div>
+                            <SelectionCheckmark position="left-center" />
                         )}
                         {isDragEnabled && (
                             <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-6 p-1 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -471,6 +626,17 @@ export function ScriptGrid() {
                     confirmText={t('common.delete')}
                     variant="danger"
                 />
+
+                {/* Move to category modal */}
+                <MoveToModal
+                    isOpen={moveToModalOpen}
+                    onClose={() => setMoveToModalOpen(false)}
+                    selectedScriptIds={selectedScriptIds}
+                    onMoveComplete={() => {
+                        clearSelection();
+                        setMoveToModalOpen(false);
+                    }}
+                />
             </div>
         );
     }
@@ -495,17 +661,7 @@ export function ScriptGrid() {
             }}
         >
             {/* 框選視覺效果 */}
-            {selectionBox && (
-                <div
-                    className="absolute border-2 border-primary-500 bg-primary-500/10 pointer-events-none z-50"
-                    style={{
-                        left: selectionBox.left,
-                        top: selectionBox.top,
-                        width: selectionBox.width,
-                        height: selectionBox.height,
-                    }}
-                />
-            )}
+            <SelectionBox box={selectionBox} />
 
             {/* 子類別（文件夾）卡片 - 獨立的 grid */}
             {childCategories.length > 0 && (
@@ -514,6 +670,26 @@ export function ScriptGrid() {
                         <div
                             key={category.id}
                             data-category-id={category.id}
+                            className={cn(
+                                "flex flex-col items-center p-4 rounded-xl border-2 cursor-pointer relative group",
+                                selectedCategoryIds.has(category.id)
+                                    ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
+                                    : "border-gray-200 dark:border-dark-600",
+                                "hover:border-primary-400 dark:hover:border-primary-500",
+                                "hover:bg-primary-50 dark:hover:bg-primary-900/10",
+                                "hover:shadow-md",
+                                "transition-all duration-200",
+                                isDragEnabled && 'cursor-grab active:cursor-grabbing',
+                                categoryDraggedId === category.id && 'opacity-50',
+                                categoryDragOverId === category.id && 'ring-2 ring-primary-500 ring-offset-2'
+                            )}
+                            draggable={isDragEnabled}
+                            onDragStart={(e) => isDragEnabled && onCategoryDragStart(e, category.id)}
+                            onDragOver={onCategoryDragOver}
+                            onDragEnter={(e) => isDragEnabled && onCategoryDragEnter(e, category.id)}
+                            onDragLeave={onCategoryDragLeave}
+                            onDrop={(e) => isDragEnabled && onCategoryDrop(e, category.id)}
+                            onDragEnd={onCategoryDragEnd}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 if (e.ctrlKey || e.metaKey) {
@@ -527,22 +703,16 @@ export function ScriptGrid() {
                             }}
                             onMouseDown={(e) => e.stopPropagation()}
                             onContextMenu={(e) => handleCategoryContextMenu(e, category)}
-                            className={cn(
-                                "flex flex-col items-center p-4 rounded-xl border-2 cursor-pointer relative",
-                                selectedCategoryIds.has(category.id)
-                                    ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
-                                    : "border-gray-200 dark:border-dark-600",
-                                "hover:border-primary-400 dark:hover:border-primary-500",
-                                "hover:bg-primary-50 dark:hover:bg-primary-900/10",
-                                "hover:shadow-md",
-                                "transition-all duration-200"
-                            )}
                         >
+                            {/* 拖拽手柄 */}
+                            {isDragEnabled && (
+                                <div className="absolute top-2 right-2 p-1 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                    <GripVertical className="w-4 h-4" />
+                                </div>
+                            )}
                             {/* 選中標記 */}
                             {selectedCategoryIds.has(category.id) && (
-                                <div className="absolute top-2 left-2 z-10 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
-                                    <Check className="w-3 h-3 text-white" />
-                                </div>
+                                <SelectionCheckmark position="top-left" />
                             )}
                             <div className="w-16 h-16 flex items-center justify-center bg-gray-50 dark:bg-dark-700 rounded-xl mb-3 overflow-hidden">
                                 <img
@@ -587,9 +757,7 @@ export function ScriptGrid() {
                         >
                             {/* 選中標記 */}
                             {selectedScriptIds.has(script.id) && (
-                                <div className="absolute top-2 left-2 z-10 w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
-                                    <Check className="w-3 h-3 text-white" />
-                                </div>
+                                <SelectionCheckmark position="top-left" />
                             )}
                             {isDragEnabled && (
                                 <div className="absolute top-2 right-2 p-1 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity z-10">
@@ -645,6 +813,17 @@ export function ScriptGrid() {
                 message={t('category.manager.batchDeleteConfirm', { count: selectedCategoryIds.size })}
                 confirmText={t('common.delete')}
                 variant="danger"
+            />
+
+            {/* Move to category modal */}
+            <MoveToModal
+                isOpen={moveToModalOpen}
+                onClose={() => setMoveToModalOpen(false)}
+                selectedScriptIds={selectedScriptIds}
+                onMoveComplete={() => {
+                    clearSelection();
+                    setMoveToModalOpen(false);
+                }}
             />
         </div>
     );

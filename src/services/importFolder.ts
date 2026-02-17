@@ -1,7 +1,7 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { readTextFile, readDir, readFile } from '@tauri-apps/plugin-fs';
 import i18n from '@/i18n';
-import type { Script, Category, Tag, Variable } from '@/types';
+import type { Script, Category, Tag } from '@/types';
 import type { CategoryExport, UnifiedImportResult, UnifiedManifest } from '@/types/transfer';
 import { insertCustomIcon, type CustomIconRow } from './database';
 
@@ -71,13 +71,12 @@ async function importCategoryRecursive(
                     content: scriptContent,
                     description: scriptExport.file
                 }],
-                variables: scriptExport.variables,
-                tags: scriptExport.tags,
+                tags: scriptExport.tags || [],
                 categoryId: categoryExport.id,
-                order: scriptExport.order,
+                order: scriptExport.order ?? 0,
                 createdAt: scriptExport.createdAt,
                 updatedAt: scriptExport.updatedAt,
-                isFavorite: scriptExport.isFavorite
+                isFavorite: scriptExport.isFavorite ?? false
             };
 
             result.scripts.push(script);
@@ -144,8 +143,7 @@ export async function importUnified(): Promise<UnifiedImportResult | null> {
     const result: UnifiedImportResult = {
         categories: [],
         scripts: [],
-        tags: [],
-        variables: []
+        tags: []
     };
 
     // 導入全域標籤
@@ -155,15 +153,6 @@ export async function importUnified(): Promise<UnifiedImportResult | null> {
         result.tags = JSON.parse(tagsContent) as Tag[];
     } catch {
         console.warn('No global tags found');
-    }
-
-    // 導入全域變量
-    try {
-        const variablesPath = `${basePath}/global/variables.json`;
-        const variablesContent = await readTextFile(variablesPath);
-        result.variables = JSON.parse(variablesContent) as Variable[];
-    } catch {
-        console.warn('No global variables found');
     }
 
     // 導入自訂圖標庫
@@ -197,41 +186,55 @@ export async function importUnified(): Promise<UnifiedImportResult | null> {
         console.warn('No categories folder found');
     }
 
-    // 導入未分類腳本
+    // 導入未分類腳本 - 如果有的話，自動創建一個類別來存放
     const uncatPath = `${basePath}/uncategorized`;
     try {
         const uncatJsonPath = `${uncatPath}/category.json`;
         const uncatContent = await readTextFile(uncatJsonPath);
         const uncatExport = JSON.parse(uncatContent) as CategoryExport;
 
-        for (const scriptExport of uncatExport.scripts) {
-            try {
-                const scriptFilePath = `${uncatPath}/${scriptExport.file}`;
-                const scriptContent = await readTextFile(scriptFilePath);
+        if (uncatExport.scripts.length > 0) {
+            // 創建一個類別來存放導入的未分類腳本
+            const importedCategoryId = crypto.randomUUID();
+            const importedCategory: Category = {
+                id: importedCategoryId,
+                name: i18n.t('import.export.uncategorizedName'),
+                description: i18n.t('import.export.uncategorizedDesc'),
+                icon: 'app_logo',
+                order: result.categories.length,
+                createdAt: new Date().toISOString(),
+                parentId: null
+            };
+            result.categories.push(importedCategory);
 
-                const script: Script = {
-                    id: scriptExport.id,
-                    title: scriptExport.title,
-                    description: scriptExport.description,
-                    platform: scriptExport.platform as Script['platform'],
-                    commands: [{
-                        id: crypto.randomUUID(),
-                        order: 0,
-                        content: scriptContent,
-                        description: scriptExport.file
-                    }],
-                    variables: scriptExport.variables,
-                    tags: scriptExport.tags,
-                    categoryId: undefined, // 未分類
-                    order: scriptExport.order,
-                    createdAt: scriptExport.createdAt,
-                    updatedAt: scriptExport.updatedAt,
-                    isFavorite: scriptExport.isFavorite
-                };
+            for (const scriptExport of uncatExport.scripts) {
+                try {
+                    const scriptFilePath = `${uncatPath}/${scriptExport.file}`;
+                    const scriptContent = await readTextFile(scriptFilePath);
 
-                result.scripts.push(script);
-            } catch (e) {
-                console.warn(`Failed to import uncategorized script ${scriptExport.title}:`, e);
+                    const script: Script = {
+                        id: scriptExport.id,
+                        title: scriptExport.title,
+                        description: scriptExport.description,
+                        platform: scriptExport.platform as Script['platform'],
+                        commands: [{
+                            id: crypto.randomUUID(),
+                            order: 0,
+                            content: scriptContent,
+                            description: scriptExport.file
+                        }],
+                        tags: scriptExport.tags || [],
+                        categoryId: importedCategoryId, // 放入新創建的類別
+                        order: scriptExport.order ?? 0,
+                        createdAt: scriptExport.createdAt,
+                        updatedAt: scriptExport.updatedAt,
+                        isFavorite: scriptExport.isFavorite ?? false
+                    };
+
+                    result.scripts.push(script);
+                } catch (e) {
+                    console.warn(`Failed to import uncategorized script ${scriptExport.title}:`, e);
+                }
             }
         }
     } catch {

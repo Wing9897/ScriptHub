@@ -8,3 +8,5 @@ export { ThemeToggle } from './ThemeToggle';
 export { ConfirmDialog } from './ConfirmDialog';
 export { ContextMenu } from './ContextMenu';
 export type { ContextMenuItem } from './ContextMenu';
+export { SelectionBox } from './SelectionBox';
+export { SelectionCheckmark } from './SelectionCheckmark';

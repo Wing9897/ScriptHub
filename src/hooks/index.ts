@@ -4,3 +4,4 @@ export { useDragSort } from './useDragSort';
 export { useStorageInit } from './useStorageInit';
 export { useKeyboardShortcuts } from './useKeyboardShortcuts';
 export { useBoxSelection } from './useBoxSelection';
+export { useScriptItemLogic } from './useScriptItemLogic.tsx';

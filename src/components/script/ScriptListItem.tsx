@@ -1,10 +1,7 @@
-import { useState, useCallback } from 'react';
-import { Star, Copy, Terminal, ChevronRight, Edit2, Trash2 } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+import { Star, Copy, Terminal, ChevronRight } from 'lucide-react';
 import { Script } from '@/types';
-import { useScriptStore, useTagStore, useUIStore } from '@/stores';
 import { cn, PLATFORM_COLORS } from '@/utils';
-import { useCopyScript } from '@/hooks/useCopyScript';
+import { useScriptItemLogic } from '@/hooks';
 import { ContextMenu, ConfirmDialog } from '@/components/ui';
 
 interface ScriptListItemProps {
@@ -14,52 +11,26 @@ interface ScriptListItemProps {
 }
 
 export function ScriptListItem({ script, onSelect, onContextMenu: parentContextMenu }: ScriptListItemProps) {
-    const { t } = useTranslation();
-    const setSelectedScript = useScriptStore((state) => state.setSelectedScript);
-    const toggleFavorite = useScriptStore((state) => state.toggleFavorite);
-    const deleteScript = useScriptStore((state) => state.deleteScript);
-    const selectedScriptId = useScriptStore((state) => state.selectedScriptId);
-    const getTagById = useTagStore((state) => state.getTagById);
-    const addToast = useUIStore((state) => state.addToast);
-    const openScriptEditor = useUIStore((state) => state.openScriptEditor);
-    const { copyScript } = useCopyScript();
-
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-    const closeContextMenu = useCallback(() => setContextMenu(null), []);
-
-    const handleContextMenu = (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        // 如果有父級的 contextMenu 處理器，使用它（支持多選右鍵菜單）
-        if (parentContextMenu) {
-            parentContextMenu(e);
-        } else {
-            setContextMenu({ x: e.clientX, y: e.clientY });
-        }
-    };
-
-    const handleDelete = async () => {
-        try {
-            await deleteScript(script.id);
-            addToast({ type: 'success', message: t('script.deleteSuccess') });
-        } catch {
-            addToast({ type: 'error', message: t('common.error') });
-        }
-        setShowDeleteConfirm(false);
-    };
+    const {
+        contextMenu,
+        showDeleteConfirm,
+        selectedScriptId,
+        closeContextMenu,
+        handleContextMenu,
+        handleDelete,
+        handleSelect,
+        handleToggleFavorite,
+        handleCopy,
+        setShowDeleteConfirm,
+        getTagById,
+        contextMenuItems,
+        t,
+    } = useScriptItemLogic({ script, parentContextMenu });
 
     return (
         <>
             <div
-                onClick={(e) => {
-                    if (onSelect) {
-                        onSelect(e, script.id);
-                    } else {
-                        setSelectedScript(script.id);
-                    }
-                }}
+                onClick={(e) => handleSelect(e, onSelect)}
                 onContextMenu={handleContextMenu}
                 className={cn(
                     'group flex items-center gap-4 bg-white dark:bg-dark-800 rounded-lg border-2 px-4 py-3 cursor-pointer transition-all hover:shadow-md',
@@ -70,10 +41,7 @@ export function ScriptListItem({ script, onSelect, onContextMenu: parentContextM
             >
                 {/* Favorite */}
                 <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavorite(script.id);
-                    }}
+                    onClick={handleToggleFavorite}
                     className={cn(
                         'p-1.5 rounded-lg transition-colors flex-shrink-0',
                         script.isFavorite
@@ -124,10 +92,7 @@ export function ScriptListItem({ script, onSelect, onContextMenu: parentContextM
 
                 {/* Quick Copy */}
                 <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        copyScript(script);
-                    }}
+                    onClick={handleCopy}
                     className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
                     title={t('script.copyAll')}
                 >
@@ -142,19 +107,7 @@ export function ScriptListItem({ script, onSelect, onContextMenu: parentContextM
                 <ContextMenu
                     x={contextMenu.x}
                     y={contextMenu.y}
-                    items={[
-                        {
-                            label: t('common.edit'),
-                            icon: <Edit2 className="w-4 h-4" />,
-                            onClick: () => openScriptEditor(script.id),
-                        },
-                        {
-                            label: t('common.delete'),
-                            icon: <Trash2 className="w-4 h-4" />,
-                            onClick: () => setShowDeleteConfirm(true),
-                            variant: 'danger',
-                        },
-                    ]}
+                    items={contextMenuItems}
                     onClose={closeContextMenu}
                 />
             )}

@@ -53,7 +53,7 @@ export function TagSelector({ selectedTags, onChange }: TagSelectorProps) {
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors"
             >
                 <Plus className="w-3.5 h-3.5" />
-                {t('tag.manage')}
+                {t('sidebar.manageTags')}
             </button>
         </div>
     );

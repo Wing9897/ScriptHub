@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useState, useEffect, useCallback } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
 import { useScriptStore, useUIStore, useCategoryStore } from '@/stores';
 import { Modal, Button, Input, Textarea, Select } from '@/components/ui';
 import { TagSelector } from '@/components/tag/TagSelector';
 import type { ScriptPlatform } from '@/types';
-import { extractVariables } from '@/types/variable';
 
 export function ScriptEditor() {
     const { t } = useTranslation();
@@ -32,6 +31,15 @@ export function ScriptEditor() {
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
     const [categoryId, setCategoryId] = useState<string>('');
 
+    const resetForm = useCallback(() => {
+        setTitle('');
+        setDescription('');
+        setPlatform('cross');
+        setCommandsText('');
+        setSelectedTags([]);
+        setCategoryId('');
+    }, []);
+
     // Load editing script data
     useEffect(() => {
         if (editingScript) {
@@ -47,20 +55,11 @@ export function ScriptEditor() {
         } else {
             resetForm();
             // Default to current category if in category view
-            if (selectedCategoryId && selectedCategoryId !== 'uncategorized') {
+            if (selectedCategoryId) {
                 setCategoryId(selectedCategoryId);
             }
         }
-    }, [editingScript, selectedCategoryId]);
-
-    const resetForm = () => {
-        setTitle('');
-        setDescription('');
-        setPlatform('cross');
-        setCommandsText('');
-        setSelectedTags([]);
-        setCategoryId('');
-    };
+    }, [editingScript, selectedCategoryId, resetForm]);
 
     const parseCommands = (text: string) => {
         return text
@@ -85,17 +84,16 @@ export function ScriptEditor() {
             return;
         }
 
+        if (!categoryId) {
+            addToast({ type: 'error', message: t('script.editor.validation.category') });
+            return;
+        }
+
         const commandLines = parseCommands(commandsText);
         if (commandLines.length === 0) {
             addToast({ type: 'error', message: t('script.editor.validation.command') });
             return;
         }
-
-        // Extract variables from all commands
-        const allVariables = new Set<string>();
-        commandLines.forEach((cmd) => {
-            extractVariables(cmd).forEach((v) => allVariables.add(v));
-        });
 
         const commands = commandLines.map((content, index) => ({
             id: uuidv4(),
@@ -108,7 +106,6 @@ export function ScriptEditor() {
             description: description.trim(),
             platform,
             commands,
-            variables: Array.from(allVariables),
             tags: selectedTags,
             categoryId: categoryId || undefined,
         };
@@ -187,7 +184,7 @@ export function ScriptEditor() {
                         value={categoryId}
                         onChange={(e) => setCategoryId(e.target.value)}
                         options={[
-                            { value: '', label: t('category.uncategorized') },
+                            { value: '', label: t('script.editor.selectCategory') },
                             ...categories.map((cat) => ({
                                 value: cat.id,
                                 label: cat.name,
@@ -222,7 +219,12 @@ git push origin main`}
                         spellCheck={false}
                     />
                     <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                        <span dangerouslySetInnerHTML={{ __html: t('script.editor.commandHint').replace('<1>', '<code class="bg-gray-100 dark:bg-dark-700 px-1 py-0.5 rounded">').replace('</1>', '</code>') }} />
+                        <Trans
+                            i18nKey="script.editor.commandHint"
+                            components={{
+                                1: <code className="bg-gray-100 dark:bg-dark-700 px-1 py-0.5 rounded" />
+                            }}
+                        />
                     </p>
                 </div>
             </div>

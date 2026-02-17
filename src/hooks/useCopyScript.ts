@@ -17,6 +17,10 @@ export function useCopyScript() {
     };
 
     const copyScript = (script: Script) => {
+        if (!script.commands || script.commands.length === 0) {
+            addToast({ type: 'info', message: i18n.t('script.import.noCommandsFound') });
+            return;
+        }
         recordUsage(script.id);
         const text = script.commands.map((cmd) => cmd.content).join('\n');
         copyToClipboard(text);

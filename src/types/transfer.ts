@@ -11,7 +11,6 @@ export interface UnifiedManifest {
         categories: number;
         scripts: number;
         tags: number;
-        variables: number;
     };
 }
 
@@ -40,7 +39,6 @@ export interface ScriptExport {
     file: string;        // 腳本文件名
     platform: string;
     tags: string[];
-    variables: string[];
     isFavorite: boolean;
     order?: number;
     createdAt: string;
@@ -52,5 +50,4 @@ export interface UnifiedImportResult {
     categories: import('./category').Category[];
     scripts: import('./script').Script[];
     tags: import('./tag').Tag[];
-    variables: import('./variable').Variable[];
 }

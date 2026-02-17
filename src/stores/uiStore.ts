@@ -13,15 +13,11 @@ interface UIState {
     isScriptEditorOpen: boolean;
     editingScriptId: string | null;
     isTagManagerOpen: boolean;
-    isVariableManagerOpen: boolean;
-    isVariableInputOpen: boolean;
-    isFileImporterOpen: boolean;
     isCategoryManagerOpen: boolean;
     editingCategoryId: string | null;
+    defaultParentId: string | null;  // 新建類別時的預設父類別
     isSettingsOpen: boolean;
     isSubscribeModalOpen: boolean;
-    pendingCopyText: string | null;
-    pendingCopyVariables: string[];
     toasts: Toast[];
     closeBehavior: 'ask' | 'minimize' | 'quit';
     customScriptExtensions: string[];
@@ -55,13 +51,7 @@ interface UIState {
     closeScriptEditor: () => void;
     openTagManager: () => void;
     closeTagManager: () => void;
-    openVariableManager: () => void;
-    closeVariableManager: () => void;
-    openVariableInput: (text: string, variables: string[]) => void;
-    closeVariableInput: () => void;
-    openFileImporter: () => void;
-    closeFileImporter: () => void;
-    openCategoryManager: (editCategoryId?: string) => void;
+    openCategoryManager: (editCategoryId?: string, defaultParentId?: string | null) => void;
     closeCategoryManager: () => void;
     openSettings: () => void;
     closeSettings: () => void;
@@ -88,15 +78,11 @@ export const useUIStore = create<UIState>()(
             isScriptEditorOpen: false,
             editingScriptId: null,
             isTagManagerOpen: false,
-            isVariableManagerOpen: false,
-            isVariableInputOpen: false,
-            isFileImporterOpen: false,
             isCategoryManagerOpen: false,
             editingCategoryId: null,
+            defaultParentId: null,
             isSettingsOpen: false,
             isSubscribeModalOpen: false,
-            pendingCopyText: null,
-            pendingCopyVariables: [],
             toasts: [],
             closeBehavior: 'ask',
             customScriptExtensions: DEFAULT_SCRIPT_EXTENSIONS,
@@ -170,31 +156,13 @@ export const useUIStore = create<UIState>()(
 
             closeTagManager: () => set({ isTagManagerOpen: false }),
 
-            openVariableManager: () => set({ isVariableManagerOpen: true }),
+            openCategoryManager: (editCategoryId, defaultParentId) => set({
+                isCategoryManagerOpen: true,
+                editingCategoryId: editCategoryId || null,
+                defaultParentId: defaultParentId !== undefined ? defaultParentId : null
+            }),
 
-            closeVariableManager: () => set({ isVariableManagerOpen: false }),
-
-            openVariableInput: (text, variables) =>
-                set({
-                    isVariableInputOpen: true,
-                    pendingCopyText: text,
-                    pendingCopyVariables: variables,
-                }),
-
-            closeVariableInput: () =>
-                set({
-                    isVariableInputOpen: false,
-                    pendingCopyText: null,
-                    pendingCopyVariables: [],
-                }),
-
-            openFileImporter: () => set({ isFileImporterOpen: true }),
-
-            closeFileImporter: () => set({ isFileImporterOpen: false }),
-
-            openCategoryManager: (editCategoryId) => set({ isCategoryManagerOpen: true, editingCategoryId: editCategoryId || null }),
-
-            closeCategoryManager: () => set({ isCategoryManagerOpen: false, editingCategoryId: null }),
+            closeCategoryManager: () => set({ isCategoryManagerOpen: false, editingCategoryId: null, defaultParentId: null }),
 
             openSettings: () => set({ isSettingsOpen: true }),
 

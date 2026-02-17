@@ -1,4 +1,4 @@
-import { useState, useCallback, DragEvent } from 'react';
+import { useState, useCallback, useEffect, DragEvent } from 'react';
 
 interface DragSortOptions<T> {
     items: T[];
@@ -28,6 +28,13 @@ export function useDragSort<T>({
 }: DragSortOptions<T>): UseDragSortReturn<T> {
     const [draggedId, setDraggedId] = useState<string | null>(null);
     const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+    // 組件卸載時清理 is-dragging class
+    useEffect(() => {
+        return () => {
+            document.body.classList.remove('is-dragging');
+        };
+    }, []);
 
     const onDragStart = useCallback((e: DragEvent<HTMLElement>, id: string) => {
         setDraggedId(id);
