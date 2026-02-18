@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Download, Trash2, AlertTriangle, MonitorUp, FolderOpen, Palette, Moon, Sun, Loader2, CheckCircle, XCircle, Github } from 'lucide-react';
+import { Download, Trash2, AlertTriangle, MonitorUp, FolderOpen, Palette, Moon, Sun, Loader2, CheckCircle, XCircle, Github, RefreshCw } from 'lucide-react';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { getVersion } from '@tauri-apps/api/app';
 import { Button, ConfirmDialog } from '@/components/ui';
 import { useScriptStore, useTagStore, useUIStore, useCategoryStore } from '@/stores';
 import { cn } from '@/utils';
-import { importUnified, exportUnified, initializeGitHubToken, verifyCurrentToken, setManualToken, syncAllToDatabase, clearAllData, type GitHubTokenStatus } from '@/services';
+import { importUnified, exportUnified, initializeGitHubToken, verifyCurrentToken, setManualToken, syncAllToDatabase, clearAllData } from '@/services';
 import { useTranslation } from 'react-i18next';
 
 export function SettingsPage() {
@@ -33,10 +33,13 @@ export function SettingsPage() {
     const [autoStartLoading, setAutoStartLoading] = useState(false);
     const [appVersion, setAppVersion] = useState(t('common.loading'));
 
-    // GitHub 連接狀態
-    const [githubStatus, setGithubStatus] = useState<GitHubTokenStatus>({ hasToken: false, source: 'none', isValid: null });
-    const [githubChecking, setGithubChecking] = useState(true);
+    // GitHub 連接狀態 - 使用全局狀態
+    const githubStatus = useUIStore((state) => state.githubStatus);
+    const githubUsername = useUIStore((state) => state.githubUsername);
+    const setGitHubStatus = useUIStore((state) => state.setGitHubStatus);
+    const setGitHubUsername = useUIStore((state) => state.setGitHubUsername);
     const [manualToken, setManualTokenInput] = useState('');
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Confirm dialog states
     const [importConfirm, setImportConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
@@ -48,27 +51,31 @@ export function SettingsPage() {
         getVersion().then(setAppVersion).catch(() => setAppVersion('unknown'));
     }, []);
 
-    // 初始化 GitHub 連接狀態
-    useEffect(() => {
-        const checkGitHub = async () => {
-            setGithubChecking(true);
-            try {
-                const status = await initializeGitHubToken();
-                setGithubStatus(status);
-
-                // 自動驗證 Token
-                if (status.hasToken) {
-                    const verified = await verifyCurrentToken();
-                    setGithubStatus(verified);
+    // 手動刷新 GitHub 連接狀態
+    const handleRefreshGitHub = async () => {
+        setIsRefreshing(true);
+        setGitHubStatus('connecting');
+        try {
+            const status = await initializeGitHubToken();
+            if (status.hasToken) {
+                const verified = await verifyCurrentToken();
+                if (verified.isValid) {
+                    setGitHubStatus('connected');
+                    setGitHubUsername(verified.username || null);
+                } else {
+                    setGitHubStatus('error');
+                    setGitHubUsername(null);
                 }
-            } catch (e) {
-                setGithubStatus({ hasToken: false, source: 'none', isValid: false });
-            } finally {
-                setGithubChecking(false);
+            } else {
+                setGitHubStatus('disconnected');
+                setGitHubUsername(null);
             }
-        };
-        checkGitHub();
-    }, []);
+        } catch {
+            setGitHubStatus('error');
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
 
     // 檢查開機自啟狀態
     useEffect(() => {
@@ -335,39 +342,41 @@ export function SettingsPage() {
                             <Github className="w-5 h-5 text-gray-700 dark:text-gray-300" />
                             <p className="font-medium text-gray-900 dark:text-gray-100">{t('settings.githubStatus')}</p>
                         </div>
-                        {githubChecking ? (
-                            <div className="flex items-center gap-2 text-sm text-gray-500">
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                <span>{t('settings.githubChecking')}</span>
-                            </div>
-                        ) : githubStatus.hasToken && githubStatus.isValid ? (
-                            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-                                <CheckCircle className="w-4 h-4" />
-                                <span>{t('settings.githubConnected')}</span>
-                            </div>
-                        ) : githubStatus.hasToken && githubStatus.isValid === false ? (
-                            <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-                                <XCircle className="w-4 h-4" />
-                                <span>{t('settings.githubTokenInvalid')}</span>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400">
-                                <AlertTriangle className="w-4 h-4" />
-                                <span>{t('settings.githubNotConnected')}</span>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-2">
+                            {githubStatus === 'connecting' ? (
+                                <div className="flex items-center gap-2 text-sm text-gray-500">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span>{t('settings.githubChecking')}</span>
+                                </div>
+                            ) : githubStatus === 'connected' ? (
+                                <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                                    <CheckCircle className="w-4 h-4" />
+                                    <span>{githubUsername || t('settings.githubConnected')}</span>
+                                </div>
+                            ) : githubStatus === 'error' ? (
+                                <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                                    <XCircle className="w-4 h-4" />
+                                    <span>{t('settings.githubTokenInvalid')}</span>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400">
+                                    <AlertTriangle className="w-4 h-4" />
+                                    <span>{t('settings.githubNotConnected')}</span>
+                                </div>
+                            )}
+                            <button
+                                onClick={handleRefreshGitHub}
+                                disabled={isRefreshing || githubStatus === 'connecting'}
+                                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+                                title={t('common.reset')}
+                            >
+                                <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
+                            </button>
+                        </div>
                     </div>
 
-                    {/* Token 來源說明 */}
-                    {githubStatus.hasToken && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                            {t('settings.tokenSource')} {githubStatus.source === 'credential_manager' ? t('settings.tokenSourceGCM') :
-                                githubStatus.source === 'env_variable' ? t('settings.tokenSourceEnv') : t('settings.tokenSourceManual')}
-                        </p>
-                    )}
-
-                    {/* 手動 Token 輸入 (僅當沒有自動偵測到 Token 時顯示) */}
-                    {!githubStatus.hasToken && !githubChecking && (
+                    {/* 手動 Token 輸入 (僅當未連接時顯示) */}
+                    {githubStatus === 'disconnected' && (
                         <>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
                                 {t('settings.noTokenDetected')} <code className="bg-gray-100 dark:bg-dark-700 px-1 rounded">GITHUB_TOKEN</code>
@@ -386,13 +395,17 @@ export function SettingsPage() {
                                         const token = manualToken.trim() || null;
                                         if (token) {
                                             setManualToken(token);
-                                            setGithubStatus({ hasToken: true, source: 'manual', isValid: null });
-                                            setGithubChecking(true);
+                                            setGitHubStatus('connecting');
                                             try {
                                                 const verified = await verifyCurrentToken();
-                                                setGithubStatus(verified);
-                                            } finally {
-                                                setGithubChecking(false);
+                                                if (verified.isValid) {
+                                                    setGitHubStatus('connected');
+                                                    setGitHubUsername(verified.username || null);
+                                                } else {
+                                                    setGitHubStatus('error');
+                                                }
+                                            } catch {
+                                                setGitHubStatus('error');
                                             }
                                             addToast({ type: 'success', message: t('settings.tokenSaved') });
                                         }
