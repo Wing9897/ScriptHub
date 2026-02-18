@@ -114,18 +114,34 @@ export function CategoryGrid() {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [openMenuId]);
 
-    // 計算每個類別的腳本數量
+    // 計算每個類別的腳本數量（包含子類別）
     const categoryCounts = useMemo(() => {
         const counts: Record<string, number> = {};
 
+        // 先計算每個類別直接擁有的腳本數量
+        const directCounts: Record<string, number> = {};
         scripts.forEach((script) => {
             if (script.categoryId) {
-                counts[script.categoryId] = (counts[script.categoryId] || 0) + 1;
+                directCounts[script.categoryId] = (directCounts[script.categoryId] || 0) + 1;
             }
         });
 
+        // 計算包含子類別的總數
+        const getTotalCount = (categoryId: string): number => {
+            const descendantIds = getCategoryAndDescendantIds(categories, categoryId);
+            let total = 0;
+            descendantIds.forEach(id => {
+                total += directCounts[id] || 0;
+            });
+            return total;
+        };
+
+        categories.forEach(cat => {
+            counts[cat.id] = getTotalCount(cat.id);
+        });
+
         return { counts };
-    }, [scripts]);
+    }, [scripts, categories]);
 
     // 排序類別 - 只顯示根類別（沒有 parentId 的）
     const sortedCategories = useMemo(() => {
@@ -243,7 +259,7 @@ export function CategoryGrid() {
         return items;
     };
 
-    // Pull 更新處理 (使用 ZIP 下載)
+    // Pull 更新處理 (使用 ZIP 下載) - 支持子文件夾結構
     const handlePullUpdate = async (e: React.MouseEvent | { stopPropagation: () => void }, categoryId: string, sourceUrl: string) => {
         e.stopPropagation();
 
@@ -264,12 +280,70 @@ export function CategoryGrid() {
                 parsed.path
             );
 
-            // 刪除該類別的舊腳本（使用批量刪除，會同步到數據庫）
-            const oldScriptIds = scripts.filter(s => s.categoryId === categoryId).map(s => s.id);
-            await deleteScriptsBatch(oldScriptIds);
+            // 1. 獲取該類別及所有子類別的 ID
+            const allCategoryIds = getCategoryAndDescendantIds(categories, categoryId);
 
-            // 添加新腳本（使用 addScript，會同步到數據庫）
+            // 2. 刪除這些類別下的所有腳本
+            const oldScriptIds = scripts
+                .filter(s => s.categoryId && allCategoryIds.has(s.categoryId))
+                .map(s => s.id);
+            if (oldScriptIds.length > 0) {
+                await deleteScriptsBatch(oldScriptIds);
+            }
+
+            // 3. 刪除所有子類別（保留根訂閱類別）
+            const childCategoryIds = Array.from(allCategoryIds).filter(id => id !== categoryId);
+            for (const childId of childCategoryIds) {
+                await deleteCategory(childId);
+            }
+
+            // 4. 根據文件路徑結構創建子類別並添加腳本
+            const basePath = parsed.path || '';
+            const folderToCategoryId: Record<string, string> = { '': categoryId };
+            const addCategory = useCategoryStore.getState().addCategory;
+
             for (const { script, content } of downloaded) {
+                // 計算相對路徑（去除 basePath 前綴）
+                let relativePath = script.path;
+                if (basePath && relativePath.startsWith(basePath)) {
+                    relativePath = relativePath.slice(basePath.length);
+                    if (relativePath.startsWith('/')) {
+                        relativePath = relativePath.slice(1);
+                    }
+                }
+
+                // 獲取文件夾路徑（不包含文件名）
+                const pathParts = relativePath.split('/');
+                pathParts.pop(); // 移除文件名
+                const folderPath = pathParts.join('/');
+
+                // 確保文件夾對應的類別存在
+                let targetCategoryId = categoryId;
+                if (folderPath) {
+                    if (!folderToCategoryId[folderPath]) {
+                        // 需要創建子類別，先確保父類別存在
+                        let currentPath = '';
+                        let parentId = categoryId;
+
+                        for (const part of pathParts) {
+                            currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+                            if (!folderToCategoryId[currentPath]) {
+                                // 創建子類別
+                                const newCategory = await addCategory({
+                                    name: part,
+                                    icon: 'folder',
+                                    description: `${parsed.owner}/${parsed.repo}/${currentPath}`,
+                                }, parentId);
+                                folderToCategoryId[currentPath] = newCategory.id;
+                            }
+                            parentId = folderToCategoryId[currentPath];
+                        }
+                    }
+                    targetCategoryId = folderToCategoryId[folderPath];
+                }
+
+                // 添加腳本到對應類別
                 await addScript({
                     title: script.name.replace(/\.(sh|bat|ps1|cmd|bash|psm1)$/i, ''),
                     description: t('subscription.from', { repo: `${parsed.owner}/${parsed.repo}` }),
@@ -280,7 +354,7 @@ export function CategoryGrid() {
                         description: script.path
                     }],
                     tags: [],
-                    categoryId: categoryId,
+                    categoryId: targetCategoryId,
                 });
             }
 

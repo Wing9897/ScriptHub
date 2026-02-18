@@ -114,15 +114,6 @@ export async function initializeGitHubToken(): Promise<GitHubTokenStatus> {
 }
 
 /**
- * 清除 Token 緩存
- */
-export function clearTokenCache(): void {
-    cachedTokenStatus = null;
-    currentToken = null;
-    tokenSource = 'none';
-}
-
-/**
  * 驗證當前 Token 是否有效
  */
 export async function verifyCurrentToken(): Promise<GitHubTokenStatus> {
@@ -151,13 +142,6 @@ export function setManualToken(token: string | null): void {
  */
 export function getCurrentToken(): string | null {
     return currentToken;
-}
-
-/**
- * 獲取 Token 來源
- */
-export function getTokenSource(): TokenSource {
-    return tokenSource;
 }
 
 // ============================================================================

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Edit2, Upload, Link2, ChevronDown, ChevronUp, FolderOutput, X, ChevronRight } from 'lucide-react';
 import { useCategoryStore, useScriptStore, useUIStore } from '@/stores';
@@ -24,6 +24,22 @@ export function CategoryManager() {
     const getDescendantIds = useCategoryStore((state) => state.getDescendantIds);
 
     const scripts = useScriptStore((state) => state.scripts);
+
+    // 按層級結構排序類別列表
+    const sortedCategories = useMemo(() => {
+        const result: Category[] = [];
+        const buildList = (parentId: string | null) => {
+            const children = categories
+                .filter(c => (c.parentId || null) === parentId)
+                .sort((a, b) => a.order - b.order);
+            for (const cat of children) {
+                result.push(cat);
+                buildList(cat.id);
+            }
+        };
+        buildList(null);
+        return result;
+    }, [categories]);
 
     const [editingId, setEditingId] = useState<string | null>(null);
     const [name, setName] = useState('');
@@ -419,14 +435,12 @@ export function CategoryManager() {
 
                         {showCategoryList && (
                             <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                                {categories.length === 0 ? (
+                                {sortedCategories.length === 0 ? (
                                     <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">
                                         {t('category.manager.noCategories')}
                                     </p>
                                 ) : (
-                                    categories
-                                        .sort((a, b) => a.order - b.order)
-                                        .map((cat) => {
+                                    sortedCategories.map((cat) => {
                                             // 計算層級深度
                                             let depth = 0;
                                             let currentParentId = cat.parentId;
