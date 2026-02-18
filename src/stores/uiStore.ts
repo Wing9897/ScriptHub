@@ -5,6 +5,9 @@ import type { ViewMode, Theme } from '@/types';
 // 預設腳本副檔名
 export const DEFAULT_SCRIPT_EXTENSIONS = ['.sh', '.bash', '.bat', '.cmd', '.ps1', '.psm1'];
 
+// GitHub 連接狀態類型
+export type GitHubConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
 interface UIState {
     theme: Theme;
     viewMode: ViewMode;
@@ -23,6 +26,10 @@ interface UIState {
     customScriptExtensions: string[];
     startMinimized: boolean;
 
+    // GitHub 連接狀態
+    githubStatus: GitHubConnectionStatus;
+    githubUsername: string | null;
+
     // 多選狀態
     selectedCategoryIds: Set<string>;
     selectedScriptIds: Set<string>;
@@ -33,6 +40,10 @@ interface UIState {
     removeScriptExtension: (ext: string) => void;
     resetScriptExtensions: () => void;
     setStartMinimized: (value: boolean) => void;
+
+    // GitHub 狀態方法
+    setGitHubStatus: (status: GitHubConnectionStatus) => void;
+    setGitHubUsername: (username: string | null) => void;
 
     // 多選方法
     toggleCategorySelection: (id: string, multi?: boolean) => void;
@@ -88,6 +99,10 @@ export const useUIStore = create<UIState>()(
             customScriptExtensions: DEFAULT_SCRIPT_EXTENSIONS,
             startMinimized: true,
 
+            // GitHub 連接狀態初始值
+            githubStatus: 'disconnected',
+            githubUsername: null,
+
             // 多選狀態初始值
             selectedCategoryIds: new Set<string>(),
             selectedScriptIds: new Set<string>(),
@@ -104,6 +119,10 @@ export const useUIStore = create<UIState>()(
             })),
             resetScriptExtensions: () => set({ customScriptExtensions: DEFAULT_SCRIPT_EXTENSIONS }),
             setStartMinimized: (value) => set({ startMinimized: value }),
+
+            // GitHub 狀態方法
+            setGitHubStatus: (status) => set({ githubStatus: status }),
+            setGitHubUsername: (username) => set({ githubUsername: username }),
 
             // 多選方法
             toggleCategorySelection: (id, multi = false) => set((state) => {

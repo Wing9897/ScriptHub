@@ -12,8 +12,13 @@ import {
     Clock,
     Link2,
     Plus,
+    Github,
+    Loader2,
+    AlertCircle,
+    CheckCircle2,
 } from 'lucide-react';
 import { useUIStore, useTagStore, useScriptStore, useCategoryStore } from '@/stores';
+import type { GitHubConnectionStatus } from '@/stores/uiStore';
 import { cn } from '@/utils/cn';
 import { getCategoryIconSrc } from '@/utils/categoryIcons';
 import { getDescendantCategoryIds } from '@/utils/categoryUtils';
@@ -33,6 +38,8 @@ export function Sidebar({ mode }: SidebarProps) {
     const openSettings = useUIStore((state) => state.openSettings);
     const openSubscribeModal = useUIStore((state) => state.openSubscribeModal);
     const openCategoryManager = useUIStore((state) => state.openCategoryManager);
+    const githubStatus = useUIStore((state) => state.githubStatus);
+    const githubUsername = useUIStore((state) => state.githubUsername);
 
     const tags = useTagStore((state) => state.tags);
     const selectedTagIds = useTagStore((state) => state.selectedTagIds);
@@ -155,6 +162,9 @@ export function Sidebar({ mode }: SidebarProps) {
             {/* Footer Actions - Shared across modes */}
             <div className="px-2 py-2 border-t border-gray-200 dark:border-dark-700">
                 <div className="flex flex-col gap-1">
+                    {/* GitHub Status */}
+                    <GitHubStatusIndicator status={githubStatus} username={githubUsername} />
+
                     <button
                         onClick={openSettings}
                         className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-dark-800 rounded-lg transition-colors group"
@@ -166,6 +176,59 @@ export function Sidebar({ mode }: SidebarProps) {
                 </div>
             </div>
         </div>
+    );
+}
+
+// ============================================================================
+// GitHub Status Indicator
+// ============================================================================
+
+interface GitHubStatusIndicatorProps {
+    status: GitHubConnectionStatus;
+    username: string | null;
+}
+
+function GitHubStatusIndicator({ status, username }: GitHubStatusIndicatorProps) {
+    const { t } = useTranslation();
+    const openSettings = useUIStore((state) => state.openSettings);
+
+    const statusConfig = {
+        disconnected: {
+            icon: Github,
+            color: 'text-gray-400',
+            label: t('sidebar.github.disconnected'),
+        },
+        connecting: {
+            icon: Loader2,
+            color: 'text-yellow-500',
+            label: t('sidebar.github.connecting'),
+            animate: true,
+        },
+        connected: {
+            icon: CheckCircle2,
+            color: 'text-green-500',
+            label: username || t('sidebar.github.connected'),
+        },
+        error: {
+            icon: AlertCircle,
+            color: 'text-red-500',
+            label: t('sidebar.github.error'),
+        },
+    };
+
+    const config = statusConfig[status];
+    const Icon = config.icon;
+
+    return (
+        <button
+            onClick={openSettings}
+            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-dark-800 rounded-lg transition-colors group"
+            title={t('sidebar.github.title')}
+        >
+            <Github className="w-4 h-4 text-gray-400 group-hover:text-primary-500" />
+            <span className="flex-1 text-left text-xs truncate">{config.label}</span>
+            <Icon className={cn('w-3 h-3', config.color, 'animate' in config && config.animate && 'animate-spin')} />
+        </button>
     );
 }
 

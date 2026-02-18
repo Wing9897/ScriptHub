@@ -49,6 +49,13 @@ export default {
         uncategorized: 'Uncategorized',
         scriptCount: '{{count}} scripts',
         noCategories: 'No categories yet',
+        github: {
+            title: 'GitHub Connection',
+            disconnected: 'Not Connected',
+            connecting: 'Connecting...',
+            connected: 'Connected',
+            error: 'Connection Failed',
+        },
     },
     settings: {
         title: 'Settings',
