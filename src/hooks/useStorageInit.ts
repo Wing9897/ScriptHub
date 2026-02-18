@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { initStorage, loadAllData } from '@/services';
+import { initStorage, loadAllData, initializeGitHubToken, verifyCurrentToken } from '@/services';
 import { useCategoryStore, useScriptStore, useTagStore, useUIStore } from '@/stores';
 
 interface StorageInitStatus {
@@ -24,9 +24,40 @@ export function useStorageInit(): StorageInitStatus {
     const setScripts = useScriptStore((state) => state.setScripts);
     const setTags = useTagStore((state) => state.setTags);
     const addToast = useUIStore((state) => state.addToast);
+    const setGitHubStatus = useUIStore((state) => state.setGitHubStatus);
+    const setGitHubUsername = useUIStore((state) => state.setGitHubUsername);
 
     useEffect(() => {
         let mounted = true;
+
+        // 背景初始化 GitHub Token
+        async function initGitHub() {
+            try {
+                setGitHubStatus('connecting');
+                const tokenStatus = await initializeGitHubToken();
+
+                if (!mounted) return;
+
+                if (tokenStatus.hasToken) {
+                    // 驗證 Token 有效性
+                    const verifyResult = await verifyCurrentToken();
+                    if (!mounted) return;
+
+                    if (verifyResult.isValid) {
+                        setGitHubStatus('connected');
+                        setGitHubUsername(verifyResult.username || null);
+                    } else {
+                        setGitHubStatus('error');
+                    }
+                } else {
+                    setGitHubStatus('disconnected');
+                }
+            } catch {
+                if (mounted) {
+                    setGitHubStatus('error');
+                }
+            }
+        }
 
         async function init() {
             try {
@@ -46,6 +77,8 @@ export function useStorageInit(): StorageInitStatus {
                     setScripts(data.scripts);
                     setTags(data.tags);
 
+                    // 初始化 GitHub Token（背景執行，不阻塞啟動）
+                    initGitHub();
 
                 } else if (import.meta.env.DEV) {
                     // 瀏覽器環境 (僅開發模式)：加載 Mock 數據 (用於 UI 測試)
@@ -124,7 +157,7 @@ export function useStorageInit(): StorageInitStatus {
         return () => {
             mounted = false;
         };
-    }, [setCategories, setScripts, setTags, addToast]);
+    }, [setCategories, setScripts, setTags, addToast, setGitHubStatus, setGitHubUsername]);
 
     return status;
 }

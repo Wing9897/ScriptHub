@@ -49,6 +49,13 @@ export default {
         uncategorized: '未分類',
         scriptCount: '{{count}} 個腳本',
         noCategories: '尚無類別',
+        github: {
+            title: 'GitHub 連接狀態',
+            disconnected: '未連接',
+            connecting: '連接中...',
+            connected: '已連接',
+            error: '連接失敗',
+        },
     },
     settings: {
         title: '設定',
