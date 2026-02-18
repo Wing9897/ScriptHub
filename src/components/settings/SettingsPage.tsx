@@ -224,7 +224,7 @@ export function SettingsPage() {
                                 onClick={() => i18n.changeLanguage('zh-HK')}
                                 className={cn(
                                     "flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all",
-                                    i18n.language.startsWith('zh')
+                                    i18n.language === 'zh-HK'
                                         ? "bg-white dark:bg-dark-700 text-primary-600 shadow-sm"
                                         : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                                 )}
@@ -232,10 +232,21 @@ export function SettingsPage() {
                                 繁體中文
                             </button>
                             <button
+                                onClick={() => i18n.changeLanguage('zh-CN')}
+                                className={cn(
+                                    "flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all",
+                                    i18n.language === 'zh-CN'
+                                        ? "bg-white dark:bg-dark-700 text-primary-600 shadow-sm"
+                                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                                )}
+                            >
+                                简体中文
+                            </button>
+                            <button
                                 onClick={() => i18n.changeLanguage('en-US')}
                                 className={cn(
                                     "flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all",
-                                    i18n.language.startsWith('en')
+                                    i18n.language === 'en-US'
                                         ? "bg-white dark:bg-dark-700 text-primary-600 shadow-sm"
                                         : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                                 )}
