@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation, Trans } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
 import { useScriptStore, useUIStore, useCategoryStore } from '@/stores';
@@ -19,6 +19,27 @@ export function ScriptEditor() {
 
     const categories = useCategoryStore((state) => state.categories);
     const selectedCategoryId = useCategoryStore((state) => state.selectedCategoryId);
+
+    // 按層級排序類別選項
+    const sortedCategoryOptions = useMemo(() => {
+        const buildOptions = (parentId: string | null, depth: number): { value: string; label: string }[] => {
+            const children = categories
+                .filter(c => (c.parentId || null) === parentId)
+                .sort((a, b) => a.order - b.order);
+
+            const result: { value: string; label: string }[] = [];
+            for (const cat of children) {
+                const indent = '　'.repeat(depth); // 全形空格縮排
+                result.push({
+                    value: cat.id,
+                    label: `${indent}${cat.name}`,
+                });
+                result.push(...buildOptions(cat.id, depth + 1));
+            }
+            return result;
+        };
+        return buildOptions(null, 0);
+    }, [categories]);
 
     const editingScript = editingScriptId
         ? scripts.find((s) => s.id === editingScriptId)
@@ -185,10 +206,7 @@ export function ScriptEditor() {
                         onChange={(e) => setCategoryId(e.target.value)}
                         options={[
                             { value: '', label: t('script.editor.selectCategory') },
-                            ...categories.map((cat) => ({
-                                value: cat.id,
-                                label: cat.name,
-                            })),
+                            ...sortedCategoryOptions,
                         ]}
                     />
                 </div>
